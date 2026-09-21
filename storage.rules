@@ -1,0 +1,33 @@
+rules_version = '2';
+
+// BarberSync Firebase Storage rules
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+    }
+
+    // GCash screenshots are namespaced by uploader uid, so one barber can no
+    // longer overwrite another barber's proof of payment. Writes are
+    // create-only: once uploaded, evidence cannot be swapped out.
+    match /gcash-screenshots/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

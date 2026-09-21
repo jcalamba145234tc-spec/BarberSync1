@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "BarberSync",
+    "slug": "barbersync",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "barbersync",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#111827"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.chrisbarbershop.barbersync"
+    },
+    "android": {
+      "package": "com.chrisbarbershop.barbersync",
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "READ_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "BarberSync needs photo access so you can upload GCash payment screenshots."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#D4A537"
+        }
+      ],
+      "expo-asset",
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
