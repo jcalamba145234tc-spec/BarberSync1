@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet } from 'react-native';
 import { FAB, Text } from 'react-native-paper';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -12,9 +12,8 @@ import { QueueCard } from '../../components/queue/QueueCard';
 import { Colors } from '../../constants/colors';
 import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../hooks/useAuth';
+import { useQueue } from '../../hooks/useQueue';
 import { useTransactions } from '../../hooks/useTransactions';
-import { getQueue, isActive, updateQueueStatus } from '../../services/queueService';
-import { QueueEntry, QueueStatus } from '../../types/queue';
 import { formatCurrency, sum } from '../../utils/calculations';
 import { buildRange, formatDate, isWithinRange } from '../../utils/dateUtils';
 
@@ -30,17 +29,13 @@ export default function BarberDashboard() {
     to: month.to,
     barberId: user?.id,
   });
-  const [queue, setQueue] = useState<QueueEntry[]>([]);
+  // Shared with the queue tab and the admin dashboard.
+  const { activeQueue, busyId, setStatus } = useQueue(services);
 
   useFocusEffect(
     React.useCallback(() => {
-      let mounted = true;
       refresh();
-      getQueue(services).then((entries) => {
-        if (mounted) setQueue(entries.filter(isActive));
-      });
-      return () => { mounted = false; };
-    }, [refresh, services])
+    }, [refresh])
   );
 
   const todays = useMemo(
@@ -52,11 +47,6 @@ export default function BarberDashboard() {
     () => sum(transactions.filter((t) => t.status !== 'CANCELLED').map((t) => t.barberShare)),
     [transactions]
   );
-
-  const handleStatus = async (id: string, status: QueueStatus) => {
-    await updateQueueStatus(id, status);
-    setQueue((await getQueue(services)).filter(isActive));
-  };
 
   if (loading && !transactions.length) return <LoadingState message="Loading your day…" />;
 
@@ -70,20 +60,20 @@ export default function BarberDashboard() {
           <StatCard label="Today's earnings" value={formatCurrency(todayEarnings)} tone="success" />
           <StatCard label="Services today" value={String(todays.length)} />
           <StatCard label="This pay period" value={formatCurrency(periodEarnings)} tone="accent" hint="Month to date" />
-          <StatCard label="Customers waiting" value={String(queue.length)} />
+          <StatCard label="Customers waiting" value={String(activeQueue.length)} />
         </StatGrid>
 
         <SectionCard title="Current queue">
-          {queue.length === 0 ? (
+          {activeQueue.length === 0 ? (
             <EmptyState icon="🪑" title="No customers waiting" message="The queue is clear right now." />
           ) : (
-            queue.slice(0, 3).map((entry, index) => (
+            activeQueue.slice(0, 3).map((entry, index) => (
               <QueueCard
                 key={entry.id}
                 entry={entry}
                 position={index + 1}
-                busy={false}
-                onStatusChange={(status) => handleStatus(entry.id, status)}
+                busy={busyId === entry.id}
+                onStatusChange={(status) => setStatus(entry.id, status)}
               />
             ))
           )}

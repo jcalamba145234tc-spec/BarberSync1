@@ -6,6 +6,7 @@ import { ShopSettings } from '../types/report';
 import { listBarbers } from '../services/authService';
 import { subscribeToConnection, isOnline } from '../services/networkService';
 import type { ConnectionState } from '../services/networkService';
+import { syncEndOfDaySchedule } from '../services/notificationService';
 import { getServices } from '../services/serviceService';
 import { getSettings, saveSettings } from '../services/settingsService';
 import { pendingCount, syncPendingTransactions } from '../services/syncService';
@@ -27,8 +28,6 @@ interface AppDataContextValue {
 const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
 
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
-  // Firestore rules require an authenticated user, so nothing is fetched until
-  // somebody is signed in. This keeps the login screen free of permission errors.
   const { user } = useAuth();
   const [settings, setSettings] = useState<ShopSettings>(DEFAULT_SETTINGS);
   const [services, setServices] = useState<BarberService[]>([]);
@@ -71,6 +70,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         const loadedSettings = await getSettings();
         if (!mounted) return;
         setSettings(loadedSettings);
+        await syncEndOfDaySchedule(loadedSettings);
         await refreshServices();
         await refreshBarbers();
         setPending(await pendingCount());
@@ -84,7 +84,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user, refreshServices, refreshBarbers]);
 
-  // Automatically sync as soon as the connection comes back.
   useEffect(() => {
     if (!user) return;
     const unsubscribe = subscribeToConnection(async (online) => {
@@ -97,6 +96,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const updateSettings = useCallback(async (next: ShopSettings) => {
     const saved = await saveSettings(next);
     setSettings(saved);
+    await syncEndOfDaySchedule(saved);
   }, []);
 
   const value = useMemo<AppDataContextValue>(

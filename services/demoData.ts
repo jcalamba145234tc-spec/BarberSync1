@@ -11,10 +11,6 @@ import { replaceCachedQueue } from './queueService';
 import { DEFAULT_SERVICES, replaceCachedServices } from './serviceService';
 import { replaceCachedTransactions } from './transactionService';
 
-/**
- * Demo data lives only in the local AsyncStorage cache and is clearly marked
- * with the "DEMO" prefix in ids, so it never mixes with production Firestore data.
- */
 function demoServices(): BarberService[] {
   return DEFAULT_SERVICES.map((service, index) => ({
     ...service,
@@ -31,6 +27,13 @@ const DEMO_BARBERS = DEMO_ACCOUNTS.barbers.map((barber, index) => ({
 function hoursAgo(hours: number): string {
   const date = new Date();
   date.setHours(date.getHours() - hours);
+  return date.toISOString();
+}
+
+function minutesAgo(minutes: number): string {
+  const date = new Date();
+  date.setMinutes(date.getMinutes() - minutes);
+  date.setSeconds(0, 0);
   return date.toISOString();
 }
 
@@ -84,9 +87,9 @@ function demoQueue(services: BarberService[]): QueueEntry[] {
     barberId: DEMO_BARBERS[barberIndex].id,
     barberName: DEMO_BARBERS[barberIndex].name,
     status: position === 0 ? 'IN_SERVICE' : 'WAITING',
-    arrivalTime: hoursAgo(1 - position * 0.2),
+    arrivalTime: minutesAgo(45 - position * 15),
     estimatedWaitTime: 0,
-    startedAt: position === 0 ? hoursAgo(0.2) : null,
+    startedAt: position === 0 ? minutesAgo(12) : null,
     completedAt: null,
   }));
 }
@@ -124,7 +127,6 @@ function demoExpenses(): Expense[] {
   ];
 }
 
-/** Seeds demo data once. Safe to call on every app start. */
 export async function seedDemoData(force = false): Promise<void> {
   const alreadySeeded = await readJson<boolean>(STORAGE_KEYS.demoSeeded, false);
   if (alreadySeeded && !force) return;
@@ -148,7 +150,6 @@ export async function seedDemoData(force = false): Promise<void> {
   await writeJson(STORAGE_KEYS.demoSeeded, true);
 }
 
-/** Removes every demo record from the device. */
 export async function clearDemoData(): Promise<void> {
   await replaceCachedServices([]);
   await replaceCachedTransactions([]);

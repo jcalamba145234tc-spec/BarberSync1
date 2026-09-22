@@ -11,9 +11,21 @@ interface QueueCardProps {
   position: number;
   busy: boolean;
   onStatusChange: (status: QueueStatus) => void;
+  /**
+   * Opens the payment dialog instead of silently closing the entry.
+   * When omitted (read-only previews such as the dashboard) the Complete
+   * button is hidden, so a sale can never be closed without being recorded.
+   */
+  onComplete?: () => void;
 }
 
-export function QueueCard({ entry, position, busy, onStatusChange }: QueueCardProps) {
+function waitLabel(entry: QueueEntry): string {
+  if (entry.status !== 'WAITING' && entry.status !== 'CALLED') return '';
+  if (entry.estimatedWaitTime <= 0) return ' - Next up';
+  return ' - Est. wait: ' + entry.estimatedWaitTime + ' min';
+}
+
+export function QueueCard({ entry, position, busy, onStatusChange, onComplete }: QueueCardProps) {
   return (
     <View style={styles.card}>
       <View style={styles.header}>
@@ -26,11 +38,11 @@ export function QueueCard({ entry, position, busy, onStatusChange }: QueueCardPr
           </Text>
           <Text variant="bodySmall" style={styles.muted}>
             {entry.serviceName}
-            {entry.barberName ? ` · ${entry.barberName}` : ''}
+            {entry.barberName ? ' - ' + entry.barberName : ''}
           </Text>
           <Text variant="bodySmall" style={styles.muted}>
             Arrived {formatTime(entry.arrivalTime)}
-            {entry.status === 'WAITING' ? ` · Est. wait: ${entry.estimatedWaitTime} min` : ''}
+            {waitLabel(entry)}
           </Text>
         </View>
         <StatusBadge status={entry.status} />
@@ -47,8 +59,8 @@ export function QueueCard({ entry, position, busy, onStatusChange }: QueueCardPr
             Start
           </Button>
         )}
-        {entry.status === 'IN_SERVICE' && (
-          <Button mode="contained" compact disabled={busy} onPress={() => onStatusChange('COMPLETED')}>
+        {entry.status === 'IN_SERVICE' && onComplete && (
+          <Button mode="contained" icon="cash" compact disabled={busy} onPress={onComplete}>
             Complete
           </Button>
         )}

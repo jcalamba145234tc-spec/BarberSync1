@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { QueueEntry, QueueInput, QueueStatus } from '../types/queue';
 import { BarberService } from '../types/service';
-import { addToQueue, getQueue, updateQueueStatus } from '../services/queueService';
+import { addToQueue, getQueue, isActive, updateQueueStatus } from '../services/queueService';
 
 export function useQueue(services: BarberService[]) {
   const [queue, setQueue] = useState<QueueEntry[]>([]);
@@ -17,9 +18,26 @@ export function useQueue(services: BarberService[]) {
     }
   }, [services]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+      (async () => {
+        setLoading(true);
+        try {
+          const entries = await getQueue(services);
+          if (mounted) setQueue(entries);
+        } finally {
+          if (mounted) setLoading(false);
+        }
+      })();
+      return () => {
+        mounted = false;
+      };
+    }, [services])
+  );
+
+  const activeQueue = useMemo(() => queue.filter(isActive), [queue]);
+  const doneToday = useMemo(() => queue.filter((entry) => !isActive(entry)), [queue]);
 
   const add = useCallback(
     async (input: QueueInput) => {
@@ -42,5 +60,5 @@ export function useQueue(services: BarberService[]) {
     [load]
   );
 
-  return { queue, loading, busyId, refresh: load, add, setStatus };
+  return { queue, activeQueue, doneToday, loading, busyId, refresh: load, add, setStatus };
 }

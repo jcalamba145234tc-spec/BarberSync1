@@ -20,7 +20,7 @@ import { notifyGcashPending, notifyNewTransaction } from '../../services/notific
 import { SectionCard } from '../ui/SectionCard';
 
 interface TransactionEntryFormProps {
-  /** Barbers can only record their own work, so the picker is locked. */
+ 
   lockBarberToCurrentUser?: boolean;
   onSaved: (transaction: Transaction) => void;
 }

@@ -1,17 +1,13 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import { FinancialReport } from '../types/report';
+import { DEFAULT_SETTINGS, STORAGE_KEYS } from '../constants/config';
+import { FinancialReport, ShopSettings } from '../types/report';
 import { Transaction } from '../types/transaction';
 import { formatCurrency } from '../utils/calculations';
+import { readJson } from './localStore';
 
 type NotificationsModule = typeof import('expo-notifications');
 
-/**
- * Expo Go (SDK 53+) removed the notifications module on Android and importing it
- * at the top level throws, which would take the whole app down. So the module is
- * loaded lazily inside a try/catch and every helper below no-ops when it is not
- * available. Notifications work normally in a development build.
- */
 const isExpoGo = Constants.executionEnvironment === 'storeClient';
 
 let cachedModule: NotificationsModule | null = null;
@@ -33,7 +29,6 @@ function getNotifications(): NotificationsModule | null {
   }
 }
 
-/** True when the device can actually show notifications. */
 export function notificationsSupported(): boolean {
   return getNotifications() !== null;
 }
@@ -79,6 +74,17 @@ export async function initNotifications(): Promise<boolean> {
   }
 }
 
+export const END_OF_DAY_HOUR = 20;
+const END_OF_DAY_ID = 'barbersync-end-of-day';
+
+async function currentSettings(): Promise<ShopSettings> {
+  return readJson<ShopSettings>(STORAGE_KEYS.cachedSettings, DEFAULT_SETTINGS);
+}
+
+async function alertsEnabled(): Promise<boolean> {
+  return (await currentSettings()).notificationsEnabled;
+}
+
 async function notify(title: string, body: string): Promise<void> {
   const Notifications = getNotifications();
   if (!Notifications || !permissionGranted) return;
@@ -90,32 +96,61 @@ async function notify(title: string, body: string): Promise<void> {
 }
 
 export async function notifyNewTransaction(transaction: Transaction): Promise<void> {
+  if (!(await alertsEnabled())) return;
   await notify(
     'New transaction recorded',
-    `${transaction.serviceName} by ${transaction.barberName} — ${formatCurrency(transaction.amount)} (${transaction.paymentMethod})`
+    `${transaction.serviceName} by ${transaction.barberName} - ${formatCurrency(transaction.amount)} (${transaction.paymentMethod})`
   );
 }
 
 export async function notifyGcashPending(transaction: Transaction): Promise<void> {
+  if (!(await alertsEnabled())) return;
   await notify(
     'GCash payment needs verification',
-    `${transaction.customerName} — ${formatCurrency(transaction.amount)} · Ref ${transaction.gcashReference ?? 'n/a'}`
+    `${transaction.customerName} - ${formatCurrency(transaction.amount)} - Ref ${transaction.gcashReference ?? 'n/a'}`
   );
 }
 
 export async function notifySyncCompleted(count: number): Promise<void> {
   if (count <= 0) return;
+  if (!(await alertsEnabled())) return;
   await notify('Sync completed', `${count} offline transaction${count === 1 ? '' : 's'} uploaded.`);
 }
 
 export async function notifyEndOfDaySummary(report: FinancialReport): Promise<void> {
+  const settings = await currentSettings();
+  if (!settings.notificationsEnabled || !settings.endOfDaySummaryEnabled) return;
   await notify(
     "Today's summary",
-    `${report.transactionCount} services · Revenue ${formatCurrency(report.grossRevenue)} · Shop ${formatCurrency(report.shopShare)}`
+    `${report.transactionCount} services - Revenue ${formatCurrency(report.grossRevenue)} - Shop ${formatCurrency(report.shopShare)}`
   );
 }
 
-/** Expo push token for remote FCM pushes. Needs a development build + EAS project id. */
+export async function syncEndOfDaySchedule(settings: ShopSettings): Promise<void> {
+  const Notifications = getNotifications();
+  if (!Notifications) return;
+
+  try {
+    await Notifications.cancelScheduledNotificationAsync(END_OF_DAY_ID);
+  } catch {
+  }
+
+  if (!settings.notificationsEnabled || !settings.endOfDaySummaryEnabled) return;
+
+  try {
+    await Notifications.scheduleNotificationAsync({
+      identifier: END_OF_DAY_ID,
+      content: {
+        title: "Today's summary is ready",
+        body: 'Open BarberSync to review revenue, payouts and pending GCash.',
+      },
+      trigger: { type: 'daily', hour: END_OF_DAY_HOUR, minute: 0 } as never,
+    });
+  } catch (error) {
+    console.warn('[BarberSync] Could not schedule the end-of-day summary.', error);
+  }
+}
+
 export async function getPushToken(): Promise<string | null> {
   const Notifications = getNotifications();
   const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID;

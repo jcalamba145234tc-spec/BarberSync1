@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet } from 'react-native';
 import { Button, FAB, Text } from 'react-native-paper';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -13,8 +13,8 @@ import { TransactionCard } from '../../components/transactions/TransactionCard';
 import { Colors } from '../../constants/colors';
 import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../hooks/useAuth';
+import { useQueue } from '../../hooks/useQueue';
 import { useTransactions } from '../../hooks/useTransactions';
-import { getQueue, isActive } from '../../services/queueService';
 import { notifyEndOfDaySummary } from '../../services/notificationService';
 import { buildFinancialReport, formatCurrency } from '../../utils/calculations';
 import { buildRange, formatDate, isWithinRange } from '../../utils/dateUtils';
@@ -26,19 +26,14 @@ export default function AdminDashboard() {
   const today = useMemo(() => buildRange('TODAY'), []);
   const month = useMemo(() => buildRange('MONTH'), []);
   const { transactions, loading, refresh } = useTransactions({ from: month.from, to: month.to });
-  const [queueCount, setQueueCount] = useState(0);
+  // Same hook as the queue tab, so the counter here and the list there
+  // always agree (it reloads whenever this screen gains focus).
+  const { activeQueue } = useQueue(services);
 
   useFocusEffect(
     React.useCallback(() => {
-      let mounted = true;
       refresh();
-      getQueue(services).then((queue) => {
-        if (mounted) setQueueCount(queue.filter(isActive).length);
-      });
-      return () => {
-        mounted = false;
-      };
-    }, [refresh, services])
+    }, [refresh])
   );
 
   const todays = useMemo(
@@ -76,7 +71,7 @@ export default function AdminDashboard() {
             value={String(pendingGcash.length)}
             tone={pendingGcash.length ? 'warning' : 'default'}
           />
-          <StatCard label="In queue" value={String(queueCount)} />
+          <StatCard label="In queue" value={String(activeQueue.length)} />
           <StatCard label="This month" value={formatCurrency(monthReport.grossRevenue)} tone="accent" />
         </StatGrid>
 

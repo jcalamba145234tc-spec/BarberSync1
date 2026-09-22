@@ -7,14 +7,13 @@ import { Transaction } from '../../types/transaction';
 import { formatCurrency } from '../../utils/calculations';
 import { formatDateTime } from '../../utils/dateUtils';
 import { StatusBadge } from '../ui/StatusBadge';
-​
+
 interface TransactionCardProps {
   transaction: Transaction;
-  /** Barbers only see their own share, admins see the full split. */
   showSplit?: boolean;
   footer?: React.ReactNode;
 }
-​
+
 export function TransactionCard({ transaction, showSplit = true, footer }: TransactionCardProps) {
   return (
     <View style={styles.card}>
@@ -40,7 +39,7 @@ export function TransactionCard({ transaction, showSplit = true, footer }: Trans
           </View>
         </View>
       </View>
-​
+
       {showSplit && (
         <View style={styles.splitRow}>
           <Text variant="bodySmall" style={styles.split}>
@@ -56,18 +55,18 @@ export function TransactionCard({ transaction, showSplit = true, footer }: Trans
           )}
         </View>
       )}
-​
+
       {!!transaction.gcashReference && (
         <Text variant="bodySmall" style={styles.muted}>
           GCash ref: {transaction.gcashReference}
         </Text>
       )}
-​
+
       {footer}
     </View>
   );
 }
-​
+
 const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.surface,
@@ -88,4 +87,3 @@ const styles = StyleSheet.create({
   split: { color: Colors.textMuted, fontWeight: '600' },
   unsynced: { color: Colors.warning, fontWeight: '700' },
 });
-​
