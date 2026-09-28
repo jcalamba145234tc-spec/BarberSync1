@@ -4,19 +4,26 @@ import { QueueEntry, QueueInput, QueueStatus } from '../types/queue';
 import { BarberService } from '../types/service';
 import { addToQueue, getQueue, isActive, updateQueueStatus } from '../services/queueService';
 
-export function useQueue(services: BarberService[]) {
+/** Pass a barber id to expose only entries assigned to that barber. */
+export function useQueue(services: BarberService[], assignedBarberId?: string) {
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  const filterForBarber = useCallback(
+    (entries: QueueEntry[]) =>
+      assignedBarberId ? entries.filter((entry) => entry.barberId === assignedBarberId) : entries,
+    [assignedBarberId]
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setQueue(await getQueue(services));
+      setQueue(filterForBarber(await getQueue(services)));
     } finally {
       setLoading(false);
     }
-  }, [services]);
+  }, [services, filterForBarber]);
 
   useFocusEffect(
     useCallback(() => {
@@ -25,7 +32,7 @@ export function useQueue(services: BarberService[]) {
         setLoading(true);
         try {
           const entries = await getQueue(services);
-          if (mounted) setQueue(entries);
+          if (mounted) setQueue(filterForBarber(entries));
         } finally {
           if (mounted) setLoading(false);
         }
@@ -33,7 +40,7 @@ export function useQueue(services: BarberService[]) {
       return () => {
         mounted = false;
       };
-    }, [services])
+    }, [services, filterForBarber])
   );
 
   const activeQueue = useMemo(() => queue.filter(isActive), [queue]);

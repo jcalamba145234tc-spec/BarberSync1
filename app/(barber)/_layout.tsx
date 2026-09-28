@@ -3,6 +3,7 @@ import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors } from '../../constants/colors';
 import { ConnectionIndicator } from '../../components/ui/ConnectionIndicator';
+import { HeaderBackButton } from '../../components/ui/HeaderBackButton';
 import { RoleGuard } from '../../components/ui/RoleGuard';
 
 function icon(name: keyof typeof MaterialCommunityIcons.glyphMap) {
@@ -32,7 +33,10 @@ export default function BarberLayout() {
         <Tabs.Screen name="earnings" options={{ title: 'Earnings', tabBarIcon: icon('cash') }} />
         <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: icon('account') }} />
 
-        <Tabs.Screen name="transaction-entry" options={{ title: 'Log Service', href: null }} />
+        <Tabs.Screen
+          name="transaction-entry"
+          options={{ title: 'Log Service', href: null, headerLeft: () => <HeaderBackButton /> }}
+        />
       </Tabs>
     </RoleGuard>
   );

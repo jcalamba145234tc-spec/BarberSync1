@@ -3,6 +3,7 @@ import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors } from '../../constants/colors';
 import { ConnectionIndicator } from '../../components/ui/ConnectionIndicator';
+import { HeaderBackButton } from '../../components/ui/HeaderBackButton';
 import { RoleGuard } from '../../components/ui/RoleGuard';
 
 function icon(name: keyof typeof MaterialCommunityIcons.glyphMap) {
@@ -32,11 +33,26 @@ export default function AdminLayout() {
         <Tabs.Screen name="reports" options={{ title: 'Reports', tabBarIcon: icon('chart-box') }} />
         <Tabs.Screen name="settings" options={{ title: 'Settings', tabBarIcon: icon('cog') }} />
 
-        <Tabs.Screen name="transaction-entry" options={{ title: 'New Transaction', href: null }} />
-        <Tabs.Screen name="revenue-split" options={{ title: 'Revenue Split', href: null }} />
-        <Tabs.Screen name="services" options={{ title: 'Services', href: null }} />
-        <Tabs.Screen name="expenses" options={{ title: 'Expenses', href: null }} />
-        <Tabs.Screen name="barbers" options={{ title: 'Barbers', href: null }} />
+        <Tabs.Screen
+          name="transaction-entry"
+          options={{ title: 'New Transaction', href: null, headerLeft: () => <HeaderBackButton /> }}
+        />
+        <Tabs.Screen
+          name="revenue-split"
+          options={{ title: 'Revenue Split', href: null, headerLeft: () => <HeaderBackButton /> }}
+        />
+        <Tabs.Screen
+          name="services"
+          options={{ title: 'Services', href: null, headerLeft: () => <HeaderBackButton /> }}
+        />
+        <Tabs.Screen
+          name="expenses"
+          options={{ title: 'Expenses', href: null, headerLeft: () => <HeaderBackButton /> }}
+        />
+        <Tabs.Screen
+          name="barbers"
+          options={{ title: 'Barbers', href: null, headerLeft: () => <HeaderBackButton /> }}
+        />
       </Tabs>
     </RoleGuard>
   );

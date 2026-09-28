@@ -22,12 +22,18 @@ import { QueueCard } from './QueueCard';
 export function QueueBoard() {
   const { services, barbers, settings } = useAppData();
   const { user } = useAuth();
-  const { queue, loading, busyId, refresh, add, setStatus } = useQueue(services);
+  const isBarberPortal = user?.role === 'BARBER';
+  const { queue, loading, busyId, refresh, add, setStatus } = useQueue(
+    services,
+    isBarberPortal ? user?.id : undefined
+  );
 
   const [visible, setVisible] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [serviceId, setServiceId] = useState('');
-  const [barberId, setBarberId] = useState<string | null>(null);
+  const [barberId, setBarberId] = useState<string | null>(
+    isBarberPortal && user ? user.id : null
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
@@ -61,9 +67,20 @@ export function QueueBoard() {
     const result = validateQueueEntry(customerName, serviceId);
     setErrors(result.errors);
     if (!result.valid) return;
+
     const service = services.find((s) => s.id === serviceId);
     if (!service) return;
-    const barber = barbers.find((b) => b.id === barberId) ?? null;
+
+    const assignedBarberId = isBarberPortal && user ? user.id : barberId;
+    if (!assignedBarberId) {
+      setErrors({ ...result.errors, barberId: 'Choose the barber requested by the customer.' });
+      return;
+    }
+    const barber = barbers.find((b) => b.id === assignedBarberId) ?? null;
+    if (!barber) {
+      setErrors({ ...result.errors, barberId: 'That barber is no longer available. Choose another barber.' });
+      return;
+    }
 
     setSaving(true);
     try {
@@ -71,13 +88,14 @@ export function QueueBoard() {
         customerName,
         serviceId: service.id,
         serviceName: service.name,
-        barberId: barber?.id ?? null,
-        barberName: barber?.name ?? null,
+        barberId: barber.id,
+        barberName: barber.name,
         durationMinutes: service.durationMinutes,
       });
+
       setCustomerName('');
       setServiceId('');
-      setBarberId(null);
+      setBarberId(isBarberPortal && user ? user.id : null);
       setVisible(false);
     } finally {
       setSaving(false);
@@ -229,18 +247,26 @@ export function QueueBoard() {
             </View>
             <HelperText type="error" visible={!!errors.serviceId}>{errors.serviceId}</HelperText>
 
-            <Text variant="labelLarge" style={styles.label}>Preferred barber (optional)</Text>
-            <View style={styles.chips}>
-              {barbers.map((barber) => (
-                <Chip
-                  key={barber.id}
-                  selected={barberId === barber.id}
-                  onPress={() => setBarberId(barberId === barber.id ? null : barber.id)}
-                >
-                  {barber.name}
-                </Chip>
-              ))}
-            </View>
+            {!isBarberPortal && (
+              <>
+                <Text variant="labelLarge" style={styles.label}>Customer's chosen barber</Text>
+                <View style={styles.chips}>
+                  {barbers.map((barber) => (
+                    <Chip
+                      key={barber.id}
+                      selected={barberId === barber.id}
+                      onPress={() => {
+                        setBarberId(barber.id);
+                        setErrors((current) => ({ ...current, barberId: '' }));
+                      }}
+                    >
+                      {barber.name}
+                    </Chip>
+                  ))}
+                </View>
+                <HelperText type="error" visible={!!errors.barberId}>{errors.barberId}</HelperText>
+              </>
+            )}
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setVisible(false)} disabled={saving}>Cancel</Button>

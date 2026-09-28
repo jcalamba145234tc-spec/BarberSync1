@@ -7,6 +7,7 @@ import { Colors } from '../constants/colors';
 import { DEMO_MODE } from '../constants/config';
 import { AuthProvider } from '../context/AuthContext';
 import { AppDataProvider } from '../context/AppDataContext';
+import { NavigationHistoryProvider } from '../context/NavigationHistoryContext';
 import { seedDemoData } from '../services/demoData';
 import { initNotifications } from '../services/notificationService';
 
@@ -33,10 +34,12 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <PaperProvider theme={theme}>
         <AuthProvider>
-          <AppDataProvider>
-            <StatusBar style="light" />
-            <Slot />
-          </AppDataProvider>
+          <NavigationHistoryProvider>
+            <AppDataProvider>
+              <StatusBar style="light" />
+              <Slot />
+            </AppDataProvider>
+          </NavigationHistoryProvider>
         </AuthProvider>
       </PaperProvider>
     </SafeAreaProvider>

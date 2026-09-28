@@ -30,7 +30,7 @@ export default function BarberDashboard() {
     barberId: user?.id,
   });
   // Shared with the queue tab and the admin dashboard.
-  const { activeQueue, busyId, setStatus } = useQueue(services);
+  const { activeQueue, busyId, setStatus } = useQueue(services, user?.id);
 
   useFocusEffect(
     React.useCallback(() => {

@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppUser } from '../types/auth';
 import { describeAuthError, restoreSession, signIn, signOut } from '../services/authService';
 
@@ -20,6 +20,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [initializing, setInitializing] = useState(true);
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loginInProgress = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -39,16 +40,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
+    // State updates are asynchronous, so this also blocks rapid taps before
+    // the button has had a chance to re-render as disabled.
+    if (loginInProgress.current) return null;
+
+    loginInProgress.current = true;
     setSigningIn(true);
     setError(null);
+    const startedAt = Date.now();
     try {
       const profile = await signIn(email, password);
+      const remainingDelay = Math.max(0, 2000 - (Date.now() - startedAt));
+      if (remainingDelay) {
+        await new Promise<void>((resolve) => setTimeout(resolve, remainingDelay));
+      }
       setUser(profile);
       return profile;
     } catch (loginError) {
       setError(describeAuthError(loginError));
       return null;
     } finally {
+      loginInProgress.current = false;
       setSigningIn(false);
     }
   }, []);
