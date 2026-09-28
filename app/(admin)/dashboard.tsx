@@ -115,6 +115,26 @@ export default function AdminDashboard() {
           }
         >
           <BarberPerformanceTable rows={todayReport.barbers} />
+          <SectionCard title="🏆 Top Barbers This Month">
+            <StatGrid>
+              <StatCard
+                label="🥇 John Doe"
+                value="₱12,500"
+                tone="success"
+              />
+
+              <StatCard
+                label="🥈 Mark Cruz"
+                value="₱10,200"
+                tone="accent"
+              />
+
+              <StatCard
+                label="🥉 Ryan Santos"
+                value="₱8,900"
+              />
+            </StatGrid>
+          </SectionCard>
         </SectionCard>
 
         {pendingGcash.length > 0 && (
