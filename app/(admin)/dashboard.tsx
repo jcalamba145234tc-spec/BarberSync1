@@ -84,8 +84,25 @@ export default function AdminDashboard() {
               { label: 'Services', icon: 'content-cut', href: '/(admin)/services' },
               { label: 'Expenses', icon: 'cash-minus', href: '/(admin)/expenses' },
               { label: 'Revenue Split', icon: 'call-split', href: '/(admin)/revenue-split' },
+              { label: 'Attendance', icon: 'calendar-check', href: '/(admin)/attendance' },
             ]}
           />
+        </SectionCard>
+
+        <SectionCard title="Attendance Overview" subtitle="Today's barber attendance">
+          <StatGrid>
+            <StatCard label="Present" value="3" tone="success" />
+            <StatCard label="Absent" value="1" tone="warning" />
+            <StatCard label="Total Barbers" value="4" />
+          </StatGrid>
+
+          <Button
+            mode="contained-tonal"
+            icon="calendar-check"
+            onPress={() => router.push('/(admin)/attendance')}
+          >
+            Manage Attendance
+          </Button>
         </SectionCard>
 
         <SectionCard
@@ -135,7 +152,7 @@ export default function AdminDashboard() {
         >
           Send end-of-day summary
         </Button>
-      </Screen>
+      </Screen >
 
       <FAB
         icon="plus"

@@ -27,31 +27,97 @@ export default function AdminLayout() {
           tabBarStyle: { height: 62, paddingBottom: 8, paddingTop: 6 },
         }}
       >
-        <Tabs.Screen name="dashboard" options={{ title: 'Dashboard', tabBarIcon: icon('view-dashboard') }} />
-        <Tabs.Screen name="transactions" options={{ title: 'Transactions', tabBarIcon: icon('receipt') }} />
-        <Tabs.Screen name="queue" options={{ title: 'Queue', tabBarIcon: icon('account-clock') }} />
-        <Tabs.Screen name="reports" options={{ title: 'Reports', tabBarIcon: icon('chart-box') }} />
-        <Tabs.Screen name="settings" options={{ title: 'Settings', tabBarIcon: icon('cog') }} />
+        <Tabs.Screen
+          name="dashboard"
+          options={{
+            title: 'Dashboard',
+            tabBarIcon: icon('view-dashboard-outline'),
+          }}
+        />
+
+        <Tabs.Screen
+          name="transactions"
+          options={{
+            title: 'Transactions',
+            tabBarIcon: icon('cash-register'),
+          }}
+        />
+
+        <Tabs.Screen
+          name="queue"
+          options={{
+            title: 'Queue',
+            tabBarIcon: icon('account-group'),
+          }}
+        />
+
+        <Tabs.Screen
+          name="reports"
+          options={{
+            title: 'Reports',
+            tabBarIcon: icon('chart-line'),
+          }}
+        />
+
+        <Tabs.Screen
+          name="attendance"
+          options={{
+            title: 'Attendance',
+            tabBarIcon: icon('clipboard-check-outline'),
+          }}
+        />
+
+        <Tabs.Screen
+          name="settings"
+          options={{
+            title: 'Settings',
+            tabBarIcon: icon('cog-outline'),
+          }}
+        />
 
         <Tabs.Screen
           name="transaction-entry"
-          options={{ title: 'New Transaction', href: null, headerLeft: () => <HeaderBackButton /> }}
+          options={{
+            title: 'New Transaction',
+            href: null,
+            headerLeft: () => <HeaderBackButton />,
+          }}
         />
+
         <Tabs.Screen
           name="revenue-split"
-          options={{ title: 'Revenue Split', href: null, headerLeft: () => <HeaderBackButton /> }}
+          options={{
+            title: 'Revenue Split',
+            href: null,
+            headerLeft: () => <HeaderBackButton />,
+          }}
         />
+
         <Tabs.Screen
           name="services"
-          options={{ title: 'Services', href: null, headerLeft: () => <HeaderBackButton /> }}
+          options={{
+            title: 'Services',
+            href: null,
+            headerLeft: () => <HeaderBackButton />,
+          }}
         />
+
         <Tabs.Screen
           name="expenses"
-          options={{ title: 'Expenses', href: null, headerLeft: () => <HeaderBackButton /> }}
+          options={{
+            title: 'Expenses',
+            href: null,
+            headerLeft: () => <HeaderBackButton />,
+          }}
         />
+
         <Tabs.Screen
           name="barbers"
-          options={{ title: 'Barbers', href: null, headerLeft: () => <HeaderBackButton /> }}
+          options={{
+            title: 'Barbers',
+            href: null,
+            headerLeft: () => <HeaderBackButton />,
+          }}
         />
       </Tabs>
     </RoleGuard>

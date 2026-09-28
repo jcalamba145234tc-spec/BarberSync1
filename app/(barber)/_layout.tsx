@@ -27,15 +27,53 @@ export default function BarberLayout() {
           tabBarStyle: { height: 62, paddingBottom: 8, paddingTop: 6 },
         }}
       >
-        <Tabs.Screen name="dashboard" options={{ title: 'Dashboard', tabBarIcon: icon('view-dashboard') }} />
-        <Tabs.Screen name="transactions" options={{ title: 'My Services', tabBarIcon: icon('receipt') }} />
-        <Tabs.Screen name="queue" options={{ title: 'Queue', tabBarIcon: icon('account-clock') }} />
-        <Tabs.Screen name="earnings" options={{ title: 'Earnings', tabBarIcon: icon('cash') }} />
-        <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: icon('account') }} />
+        <Tabs.Screen
+          name="dashboard"
+          options={{
+            title: 'Dashboard',
+            tabBarIcon: icon('view-dashboard-outline'),
+          }}
+        />
+
+        <Tabs.Screen
+          name="transactions"
+          options={{
+            title: 'My Services',
+            tabBarIcon: icon('content-cut'),
+          }}
+        />
+
+        <Tabs.Screen
+          name="queue"
+          options={{
+            title: 'Queue',
+            tabBarIcon: icon('account-group'),
+          }}
+        />
+
+        <Tabs.Screen
+          name="earnings"
+          options={{
+            title: 'Earnings',
+            tabBarIcon: icon('cash-multiple'),
+          }}
+        />
+
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: 'Profile',
+            tabBarIcon: icon('account-circle-outline'),
+          }}
+        />
 
         <Tabs.Screen
           name="transaction-entry"
-          options={{ title: 'Log Service', href: null, headerLeft: () => <HeaderBackButton /> }}
+          options={{
+            title: 'Log Service',
+            href: null,
+            headerLeft: () => <HeaderBackButton />,
+          }}
         />
       </Tabs>
     </RoleGuard>
