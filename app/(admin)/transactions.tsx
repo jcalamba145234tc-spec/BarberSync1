@@ -170,14 +170,30 @@ export default function AdminTransactions() {
                 </Button>
               </>
             )}
-            {!selected?.gcashScreenshotUrl && !!selected?.gcashScreenshotLocalUri && (
-              <>
-                <Image source={{ uri: selected.gcashScreenshotLocalUri }} style={styles.screenshot} />
-                <Text variant="bodySmall" style={styles.muted}>
-                  Stored on this device, it uploads on the next sync.
-                </Text>
-              </>
+            {!selected?.gcashScreenshotUrl && !!selected?.gcashScreenshotBase64 && (
+              <Image
+                source={{ uri: `data:image/jpeg;base64,${selected.gcashScreenshotBase64}` }}
+                style={styles.screenshot}
+              />
             )}
+            {!selected?.gcashScreenshotUrl &&
+              !selected?.gcashScreenshotBase64 &&
+              !!selected?.gcashScreenshotLocalUri && (
+                <>
+                  <Image source={{ uri: selected.gcashScreenshotLocalUri }} style={styles.screenshot} />
+                  <Text variant="bodySmall" style={styles.muted}>
+                    Stored on this device, it uploads on the next sync.
+                  </Text>
+                </>
+              )}
+            {!selected?.gcashScreenshotUrl &&
+              !selected?.gcashScreenshotBase64 &&
+              !selected?.gcashScreenshotLocalUri &&
+              selected?.paymentMethod === 'GCASH' && (
+                <Text variant="bodySmall" style={styles.muted}>
+                  No screenshot was attached for this payment.
+                </Text>
+              )}
           </Dialog.Content>
           <Dialog.Actions style={styles.dialogActions}>
             {selected?.status === 'PENDING_GCASH' && (

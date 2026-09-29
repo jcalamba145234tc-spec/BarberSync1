@@ -14,6 +14,9 @@ export interface Transaction {
   paymentMethod: PaymentMethod;
   gcashReference: string | null;
   gcashScreenshotUrl: string | null;
+  /** Compressed screenshot stored directly in Firestore so any device (including
+   * the admin's) can display it without needing the paid Firebase Storage plan. */
+  gcashScreenshotBase64?: string | null;
   /** Local device URI kept while a screenshot has not been uploaded yet. */
   gcashScreenshotLocalUri?: string | null;
   gcashVerified: boolean;
@@ -33,6 +36,7 @@ export interface TransactionInput {
   paymentMethod: PaymentMethod;
   gcashReference?: string | null;
   gcashScreenshotLocalUri?: string | null;
+  gcashScreenshotBase64?: string | null;
   createdBy: string;
 }
 

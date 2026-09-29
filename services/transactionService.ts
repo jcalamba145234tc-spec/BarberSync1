@@ -27,7 +27,7 @@ import { firestore } from './firebase';
 import { createLocalId, readJson, writeJson } from './localStore';
 import { isOnline } from './networkService';
 import { enqueueOp } from './pendingOps';
-import { uploadGcashScreenshot } from './storageService';
+import { getGcashScreenshotBase64, uploadGcashScreenshot } from './storageService';
 
 /** The signed-in profile, used to scope reads the way the security rules do. */
 async function currentUser(): Promise<AppUser | null> {
@@ -55,6 +55,7 @@ export function buildTransaction(input: TransactionInput, settings: ShopSettings
     paymentMethod: input.paymentMethod,
     gcashReference: isGcash ? (input.gcashReference ?? '').trim() || null : null,
     gcashScreenshotUrl: null,
+    gcashScreenshotBase64: isGcash ? input.gcashScreenshotBase64 ?? null : null,
     gcashScreenshotLocalUri: isGcash ? input.gcashScreenshotLocalUri ?? null : null,
     gcashVerified: false,
     status,

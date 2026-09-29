@@ -1,0 +1,232 @@
+diff --git a/app/(admin)/transactions.tsx b/app/(admin)/transactions.tsx
+index 59011e7..61a411e 100644
+--- a/app/(admin)/transactions.tsx
++++ b/app/(admin)/transactions.tsx
+@@ -170,14 +170,30 @@ export default function AdminTransactions() {
+                 </Button>
+               </>
+             )}
+-            {!selected?.gcashScreenshotUrl && !!selected?.gcashScreenshotLocalUri && (
+-              <>
+-                <Image source={{ uri: selected.gcashScreenshotLocalUri }} style={styles.screenshot} />
++            {!selected?.gcashScreenshotUrl && !!selected?.gcashScreenshotBase64 && (
++              <Image
++                source={{ uri: `data:image/jpeg;base64,${selected.gcashScreenshotBase64}` }}
++                style={styles.screenshot}
++              />
++            )}
++            {!selected?.gcashScreenshotUrl &&
++              !selected?.gcashScreenshotBase64 &&
++              !!selected?.gcashScreenshotLocalUri && (
++                <>
++                  <Image source={{ uri: selected.gcashScreenshotLocalUri }} style={styles.screenshot} />
++                  <Text variant="bodySmall" style={styles.muted}>
++                    Stored on this device, it uploads on the next sync.
++                  </Text>
++                </>
++              )}
++            {!selected?.gcashScreenshotUrl &&
++              !selected?.gcashScreenshotBase64 &&
++              !selected?.gcashScreenshotLocalUri &&
++              selected?.paymentMethod === 'GCASH' && (
+                 <Text variant="bodySmall" style={styles.muted}>
+-                  Stored on this device, it uploads on the next sync.
++                  No screenshot was attached for this payment.
+                 </Text>
+-              </>
+-            )}
++              )}
+           </Dialog.Content>
+           <Dialog.Actions style={styles.dialogActions}>
+             {selected?.status === 'PENDING_GCASH' && (
+diff --git a/components/transactions/TransactionEntryForm.tsx b/components/transactions/TransactionEntryForm.tsx
+index 65c7075..79b5304 100644
+--- a/components/transactions/TransactionEntryForm.tsx
++++ b/components/transactions/TransactionEntryForm.tsx
+@@ -16,6 +16,7 @@ import { PaymentMethod, Transaction } from '../../types/transaction';
+ import { calculateRevenueSplit, formatCurrency } from '../../utils/calculations';
+ import { parseAmount, validateTransaction } from '../../utils/validation';
+ import { createTransaction } from '../../services/transactionService';
++import { getGcashScreenshotBase64 } from '../../services/storageService';
+ import { notifyGcashPending, notifyNewTransaction } from '../../services/notificationService';
+ import { SectionCard } from '../ui/SectionCard';
+ 
+@@ -37,6 +38,8 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
+   const [gcashReference, setGcashReference] = useState('');
+   const [screenshotUri, setScreenshotUri] = useState<string | null>(null);
++  const [screenshotBase64, setScreenshotBase64] = useState<string | null>(null);
++  const [compressingScreenshot, setCompressingScreenshot] = useState(false);
+   const [errors, setErrors] = useState<Record<string, string>>({});
+   const [saving, setSaving] = useState(false);
+   const [saveError, setSaveError] = useState<string | null>(null);
+@@ -64,7 +67,19 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+         quality: 0.6,
+       });
+       if (!result.canceled && result.assets.length) {
+-        setScreenshotUri(result.assets[0].uri);
++        const uri = result.assets[0].uri;
++        setScreenshotUri(uri);
++        setScreenshotBase64(null);
++        setCompressingScreenshot(true);
++        try {
++          const base64 = await getGcashScreenshotBase64(uri);
++          setScreenshotBase64(base64);
++          if (!base64) {
++            setSaveError('Could not process that screenshot. Try a smaller image or a different photo.');
++          }
++        } finally {
++          setCompressingScreenshot(false);
++        }
+       }
+     } catch (error) {
+       console.warn('[BarberSync] Image picker failed.', error);
+@@ -79,6 +94,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+     setPaymentMethod('');
+     setGcashReference('');
+     setScreenshotUri(null);
++    setScreenshotBase64(null);
+     setErrors({});
+     if (!lockBarberToCurrentUser) setBarberId('');
+   };
+@@ -95,6 +111,10 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+     });
+     setErrors(result.errors);
+     if (!result.valid || !user) return;
++    if (compressingScreenshot) {
++      setSaveError('Still processing the screenshot, please wait a moment.');
++      return;
++    }
+ 
+     const service = services.find((s) => s.id === serviceId);
+     const barber = lockBarberToCurrentUser
+@@ -118,6 +138,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+           paymentMethod: paymentMethod as PaymentMethod,
+           gcashReference,
+           gcashScreenshotLocalUri: screenshotUri,
++          gcashScreenshotBase64: screenshotBase64,
+           createdBy: user.id,
+         },
+         settings
+@@ -210,8 +231,8 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+               onChangeText={setGcashReference}
+             />
+             <HelperText type="error" visible={!!errors.gcashReference}>{errors.gcashReference}</HelperText>
+-            <Button mode="outlined" icon="image-plus" onPress={pickScreenshot}>
+-              {screenshotUri ? 'Change screenshot' : 'Upload screenshot'}
++            <Button mode="outlined" icon="image-plus" onPress={pickScreenshot} loading={compressingScreenshot}>
++              {compressingScreenshot ? 'Processing…' : screenshotUri ? 'Change screenshot' : 'Upload screenshot'}
+             </Button>
+             {!!screenshotUri && <Image source={{ uri: screenshotUri }} style={styles.preview} />}
+             <Text variant="bodySmall" style={styles.muted}>
+diff --git a/package.json b/package.json
+index dfd25a8..5cde341 100644
+--- a/package.json
++++ b/package.json
+@@ -35,11 +35,12 @@
+     "react-native-safe-area-context": "~5.7.0",
+     "react-native-screens": "~4.26.0",
+     "react-native-vector-icons": "^10.2.0",
+-    "react-native-web": "^0.21.2"
++    "react-native-web": "^0.21.2",
++    "expo-image-manipulator": "*"
+   },
+   "devDependencies": {
+     "@types/react": "~19.2.4",
+     "typescript": "~6.0.3"
+   },
+   "private": true
+-}
++}
+\ No newline at end of file
+diff --git a/services/storageService.ts b/services/storageService.ts
+index 098a0e6..2942cef 100644
+--- a/services/storageService.ts
++++ b/services/storageService.ts
+@@ -1,6 +1,43 @@
+ import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
++import * as ImageManipulator from 'expo-image-manipulator';
+ import { firebaseStorage } from './firebase';
+ 
++/** Firestore documents are capped at 1 MiB, so the base64 copy must stay well
++ * under that. 350 KB of base64 text leaves plenty of room for the rest of
++ * the transaction fields. */
++const MAX_BASE64_CHARS = 350_000;
++
++/**
++ * Resizes and compresses a screenshot, then returns it as base64 text.
++ * This is what lets ANY device (including the admin's, on a different phone)
++ * see the screenshot straight from Firestore, without needing the paid
++ * Firebase Storage (Blaze) plan.
++ */
++export async function getGcashScreenshotBase64(localUri: string): Promise<string | null> {
++  try {
++    let width = 900;
++    let quality = 0.5;
++    for (let attempt = 0; attempt < 4; attempt += 1) {
++      const result = await ImageManipulator.manipulateAsync(
++        localUri,
++        [{ resize: { width } }],
++        { compress: quality, format: ImageManipulator.SaveFormat.JPEG, base64: true }
++      );
++      if (result.base64 && result.base64.length <= MAX_BASE64_CHARS) {
++        return result.base64;
++      }
++      // Still too big: shrink further and try again.
++      width = Math.round(width * 0.7);
++      quality = Math.max(0.3, quality - 0.1);
++    }
++    console.warn('[BarberSync] Screenshot too large even after compression, skipping base64 copy.');
++    return null;
++  } catch (error) {
++    console.warn('[BarberSync] Screenshot compression failed.', error);
++    return null;
++  }
++}
++
+ /**
+  * Uploads a GCash screenshot and returns its download URL.
+  *
+diff --git a/services/transactionService.ts b/services/transactionService.ts
+index 3450862..d225687 100644
+--- a/services/transactionService.ts
++++ b/services/transactionService.ts
+@@ -27,7 +27,7 @@ import { firestore } from './firebase';
+ import { createLocalId, readJson, writeJson } from './localStore';
+ import { isOnline } from './networkService';
+ import { enqueueOp } from './pendingOps';
+-import { uploadGcashScreenshot } from './storageService';
++import { getGcashScreenshotBase64, uploadGcashScreenshot } from './storageService';
+ 
+ /** The signed-in profile, used to scope reads the way the security rules do. */
+ async function currentUser(): Promise<AppUser | null> {
+@@ -55,6 +55,7 @@ export function buildTransaction(input: TransactionInput, settings: ShopSettings
+     paymentMethod: input.paymentMethod,
+     gcashReference: isGcash ? (input.gcashReference ?? '').trim() || null : null,
+     gcashScreenshotUrl: null,
++    gcashScreenshotBase64: isGcash ? input.gcashScreenshotBase64 ?? null : null,
+     gcashScreenshotLocalUri: isGcash ? input.gcashScreenshotLocalUri ?? null : null,
+     gcashVerified: false,
+     status,
+diff --git a/types/transaction.ts b/types/transaction.ts
+index cf7c4ee..18a6676 100644
+--- a/types/transaction.ts
++++ b/types/transaction.ts
+@@ -14,6 +14,9 @@ export interface Transaction {
+   paymentMethod: PaymentMethod;
+   gcashReference: string | null;
+   gcashScreenshotUrl: string | null;
++  /** Compressed screenshot stored directly in Firestore so any device (including
++   * the admin's) can display it without needing the paid Firebase Storage plan. */
++  gcashScreenshotBase64?: string | null;
+   /** Local device URI kept while a screenshot has not been uploaded yet. */
+   gcashScreenshotLocalUri?: string | null;
+   gcashVerified: boolean;
+@@ -33,6 +36,7 @@ export interface TransactionInput {
+   paymentMethod: PaymentMethod;
+   gcashReference?: string | null;
+   gcashScreenshotLocalUri?: string | null;
++  gcashScreenshotBase64?: string | null;
+   createdBy: string;
+ }
+ 

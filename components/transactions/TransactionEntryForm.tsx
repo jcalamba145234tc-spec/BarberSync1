@@ -16,6 +16,7 @@ import { PaymentMethod, Transaction } from '../../types/transaction';
 import { calculateRevenueSplit, formatCurrency } from '../../utils/calculations';
 import { parseAmount, validateTransaction } from '../../utils/validation';
 import { createTransaction } from '../../services/transactionService';
+import { getGcashScreenshotBase64 } from '../../services/storageService';
 import { notifyGcashPending, notifyNewTransaction } from '../../services/notificationService';
 import { SectionCard } from '../ui/SectionCard';
 
@@ -37,6 +38,8 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
   const [gcashReference, setGcashReference] = useState('');
   const [screenshotUri, setScreenshotUri] = useState<string | null>(null);
+  const [screenshotBase64, setScreenshotBase64] = useState<string | null>(null);
+  const [compressingScreenshot, setCompressingScreenshot] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -64,7 +67,19 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
         quality: 0.6,
       });
       if (!result.canceled && result.assets.length) {
-        setScreenshotUri(result.assets[0].uri);
+        const uri = result.assets[0].uri;
+        setScreenshotUri(uri);
+        setScreenshotBase64(null);
+        setCompressingScreenshot(true);
+        try {
+          const base64 = await getGcashScreenshotBase64(uri);
+          setScreenshotBase64(base64);
+          if (!base64) {
+            setSaveError('Could not process that screenshot. Try a smaller image or a different photo.');
+          }
+        } finally {
+          setCompressingScreenshot(false);
+        }
       }
     } catch (error) {
       console.warn('[BarberSync] Image picker failed.', error);
@@ -79,6 +94,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
     setPaymentMethod('');
     setGcashReference('');
     setScreenshotUri(null);
+    setScreenshotBase64(null);
     setErrors({});
     if (!lockBarberToCurrentUser) setBarberId('');
   };
@@ -95,6 +111,10 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
     });
     setErrors(result.errors);
     if (!result.valid || !user) return;
+    if (compressingScreenshot) {
+      setSaveError('Still processing the screenshot, please wait a moment.');
+      return;
+    }
 
     const service = services.find((s) => s.id === serviceId);
     const barber = lockBarberToCurrentUser
@@ -118,6 +138,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
           paymentMethod: paymentMethod as PaymentMethod,
           gcashReference,
           gcashScreenshotLocalUri: screenshotUri,
+          gcashScreenshotBase64: screenshotBase64,
           createdBy: user.id,
         },
         settings
@@ -210,8 +231,8 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
               onChangeText={setGcashReference}
             />
             <HelperText type="error" visible={!!errors.gcashReference}>{errors.gcashReference}</HelperText>
-            <Button mode="outlined" icon="image-plus" onPress={pickScreenshot}>
-              {screenshotUri ? 'Change screenshot' : 'Upload screenshot'}
+            <Button mode="outlined" icon="image-plus" onPress={pickScreenshot} loading={compressingScreenshot}>
+              {compressingScreenshot ? 'Processing…' : screenshotUri ? 'Change screenshot' : 'Upload screenshot'}
             </Button>
             {!!screenshotUri && <Image source={{ uri: screenshotUri }} style={styles.preview} />}
             <Text variant="bodySmall" style={styles.muted}>
