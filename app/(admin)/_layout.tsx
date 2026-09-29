@@ -1,5 +1,5 @@
-import React from 'react';
-import { Tabs } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Tabs, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors } from '../../constants/colors';
 import { ConnectionIndicator } from '../../components/ui/ConnectionIndicator';
@@ -7,8 +7,26 @@ import { HeaderBackButton } from '../../components/ui/HeaderBackButton';
 import { RoleGuard } from '../../components/ui/RoleGuard';
 
 function icon(name: keyof typeof MaterialCommunityIcons.glyphMap) {
-  return ({ color, size }: { color: string; size: number }) => (
+  return ({ color, size }: { color: any; size: number }) => (
     <MaterialCommunityIcons name={name} color={color} size={size} />
+  );
+}
+
+function BarberHeaderRight() {
+  const router = useRouter();
+  return (
+    <View style={styles.headerRightContainer}>
+      <Pressable
+        onPress={() => router.push('/(admin)/attendance')}
+        style={styles.attendanceBtn}
+        accessibilityRole="button"
+        accessibilityLabel="Manage Attendance"
+      >
+        <MaterialCommunityIcons name="clipboard-check-outline" size={16} color="#FFFFFF" />
+        <Text style={styles.attendanceBtnText}>Attendance</Text>
+      </Pressable>
+      <ConnectionIndicator />
+    </View>
   );
 }
 
@@ -60,10 +78,11 @@ export default function AdminLayout() {
         />
 
         <Tabs.Screen
-          name="attendance"
+          name="barbers"
           options={{
-            title: 'Attendance',
-            tabBarIcon: icon('clipboard-check-outline'),
+            title: 'Barbers',
+            tabBarIcon: icon('account-tie'),
+            headerRight: () => <BarberHeaderRight />,
           }}
         />
 
@@ -112,9 +131,9 @@ export default function AdminLayout() {
         />
 
         <Tabs.Screen
-          name="barbers"
+          name="attendance"
           options={{
-            title: 'Barbers',
+            title: 'Attendance',
             href: null,
             headerLeft: () => <HeaderBackButton />,
           }}
@@ -123,3 +142,26 @@ export default function AdminLayout() {
     </RoleGuard>
   );
 }
+
+const styles = StyleSheet.create({
+  headerRightContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginRight: 6,
+  },
+  attendanceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#FFFFFF22',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  attendanceBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 12,
+  },
+});

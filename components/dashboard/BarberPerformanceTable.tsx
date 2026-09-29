@@ -15,7 +15,7 @@ export function BarberPerformanceTable({ rows }: { rows: BarberPerformance[] }) 
     <View style={styles.table}>
       <View style={[styles.row, styles.headerRow]}>
         <Text variant="labelSmall" style={[styles.cell, styles.nameCell, styles.headerText]}>BARBER</Text>
-        <Text variant="labelSmall" style={[styles.cell, styles.headerText, styles.num]}>SVC</Text>
+        <Text variant="labelSmall" style={[styles.cell, styles.headerText, styles.num]}>CUSTOMERS</Text>
         <Text variant="labelSmall" style={[styles.cell, styles.headerText, styles.num]}>REVENUE</Text>
         <Text variant="labelSmall" style={[styles.cell, styles.headerText, styles.num]}>EARNINGS</Text>
       </View>

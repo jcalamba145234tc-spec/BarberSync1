@@ -13,4 +13,6 @@ export default function Index() {
   if (initializing) return <LoadingState message="Starting BarberSync…" />;
   if (!user) return <Redirect href="/(auth)/login" />;
   return <Redirect href={user.role === 'ADMIN' ? '/(admin)/dashboard' : '/(barber)/dashboard'} />;
+
+  
 }

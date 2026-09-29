@@ -8,6 +8,20 @@ export interface AppUser {
   phone: string;
   active: boolean;
   createdAt: string; // ISO string
+  specialties?: string[];
+  commissionRate?: number; // percentage split (e.g. 0.50 or 50)
+  notes?: string;
+}
+
+export interface BarberInput {
+  name: string;
+  email: string;
+  phone?: string;
+  password?: string;
+  active: boolean;
+  specialties?: string[];
+  commissionRate?: number;
+  notes?: string;
 }
 
 export interface AuthState {
@@ -15,3 +29,4 @@ export interface AuthState {
   loading: boolean;
   error: string | null;
 }
+

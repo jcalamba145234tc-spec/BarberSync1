@@ -86,7 +86,7 @@ export function buildReportHtml(
 
   <h2>Barber Performance</h2>
   <table>
-    <tr><th>Barber</th><th class="num">Services</th><th class="num">Revenue</th><th class="num">Earnings</th></tr>
+    <tr><th>Barber</th><th class="num">Customers Served</th><th class="num">Revenue</th><th class="num">Earnings</th></tr>
     ${barberRows || '<tr><td colspan="4">No barber activity in this period.</td></tr>'}
   </table>
 

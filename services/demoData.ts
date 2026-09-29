@@ -10,6 +10,7 @@ import { createLocalId, readJson, writeJson } from './localStore';
 import { replaceCachedQueue } from './queueService';
 import { DEFAULT_SERVICES, replaceCachedServices } from './serviceService';
 import { replaceCachedTransactions } from './transactionService';
+import { DEFAULT_BARBERS, replaceCachedBarbers } from './barberService';
 
 function demoServices(): BarberService[] {
   return DEFAULT_SERVICES.map((service, index) => ({
@@ -147,6 +148,7 @@ export async function seedDemoData(force = false): Promise<void> {
   await replaceCachedTransactions(transactions);
   await replaceCachedQueue(demoQueue(services));
   await replaceCachedExpenses(demoExpenses());
+  await replaceCachedBarbers(DEFAULT_BARBERS);
   await writeJson(STORAGE_KEYS.demoSeeded, true);
 }
 
@@ -155,6 +157,7 @@ export async function clearDemoData(): Promise<void> {
   await replaceCachedTransactions([]);
   await replaceCachedQueue([]);
   await replaceCachedExpenses([]);
+  await replaceCachedBarbers([]);
   await writeJson(STORAGE_KEYS.demoSeeded, false);
 }
 

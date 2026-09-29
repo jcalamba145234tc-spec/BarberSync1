@@ -251,7 +251,7 @@ export function QueueBoard() {
               <>
                 <Text variant="labelLarge" style={styles.label}>Customer's chosen barber</Text>
                 <View style={styles.chips}>
-                  {barbers.map((barber) => (
+                  {barbers.filter((b) => b.active !== false).map((barber) => (
                     <Chip
                       key={barber.id}
                       selected={barberId === barber.id}
@@ -312,7 +312,7 @@ export function QueueBoard() {
               <>
                 <Text variant="labelLarge" style={styles.label}>Served by</Text>
                 <View style={styles.chips}>
-                  {barbers.map((barber) => (
+                  {barbers.filter((b) => b.active !== false).map((barber) => (
                     <Chip
                       key={barber.id}
                       selected={payBarberId === barber.id}

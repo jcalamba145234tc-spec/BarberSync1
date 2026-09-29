@@ -108,3 +108,49 @@ export function validateResetRequest(email: string): ValidationResult {
   else if (!isValidEmail(email)) errors.email = 'That email address does not look right.';
   return { valid: Object.keys(errors).length === 0, errors };
 }
+
+export function validateBarber(
+  name: string,
+  email: string,
+  options?: {
+    password?: string;
+    isEditing?: boolean;
+    phone?: string;
+    commissionRate?: string;
+  }
+): ValidationResult {
+  const errors: Record<string, string> = {};
+  if (!name.trim()) errors.name = 'Barber name is required.';
+  if (!email.trim()) {
+    errors.email = 'Email address is required.';
+  } else if (!isValidEmail(email)) {
+    errors.email = 'That email address does not look right.';
+  }
+
+  if (!options?.isEditing) {
+    if (!options?.password) {
+      errors.password = 'A password is required for the barber account.';
+    } else if (options.password.length < 6) {
+      errors.password = 'Password must be at least 6 characters.';
+    }
+  } else if (options?.password && options.password.length < 6) {
+    errors.password = 'Password must be at least 6 characters.';
+  }
+
+  if (options?.phone && options.phone.trim()) {
+    const cleanPhone = options.phone.replace(/[\s-]/g, '');
+    if (!/^\+?[0-9]{7,15}$/.test(cleanPhone)) {
+      errors.phone = 'Enter a valid phone number (7–15 digits).';
+    }
+  }
+
+  if (options?.commissionRate !== undefined && options.commissionRate.trim() !== '') {
+    const rate = Number(options.commissionRate);
+    if (Number.isNaN(rate) || rate < 0 || rate > 100) {
+      errors.commissionRate = 'Commission rate must be between 0% and 100%.';
+    }
+  }
+
+  return { valid: Object.keys(errors).length === 0, errors };
+}
+

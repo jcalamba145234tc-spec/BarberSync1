@@ -8,6 +8,7 @@ export const COLLECTIONS = {
   queue: 'queue',
   expenses: 'expenses',
   settings: 'settings',
+  attendance: 'attendance',
 } as const;
 
 export const SETTINGS_DOC_ID = 'shop';
@@ -21,6 +22,8 @@ export const STORAGE_KEYS = {
   cachedSettings: '@barbersync/cached-settings',
   cachedUser: '@barbersync/cached-user',
   demoSeeded: '@barbersync/demo-seeded',
+  cachedBarbers: '@barbersync/cached-barbers',
+  cachedAttendance: '@barbersync/cached-attendance',
 } as const;
 
 export const DEFAULT_SETTINGS: ShopSettings = {

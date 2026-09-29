@@ -7,7 +7,7 @@ import { HeaderBackButton } from '../../components/ui/HeaderBackButton';
 import { RoleGuard } from '../../components/ui/RoleGuard';
 
 function icon(name: keyof typeof MaterialCommunityIcons.glyphMap) {
-  return ({ color, size }: { color: string; size: number }) => (
+  return ({ color, size }: { color: any; size: number }) => (
     <MaterialCommunityIcons name={name} color={color} size={size} />
   );
 }

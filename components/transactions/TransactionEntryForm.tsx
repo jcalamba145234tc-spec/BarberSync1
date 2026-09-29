@@ -149,7 +149,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
       {!lockBarberToCurrentUser && (
         <SectionCard title="Barber">
           <View style={styles.chips}>
-            {barbers.map((barber) => (
+            {barbers.filter((b) => b.active !== false).map((barber) => (
               <Chip
                 key={barber.id}
                 selected={barberId === barber.id}

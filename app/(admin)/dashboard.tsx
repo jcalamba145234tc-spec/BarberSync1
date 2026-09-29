@@ -42,6 +42,13 @@ export default function AdminDashboard() {
   );
   const todayReport = useMemo(() => buildFinancialReport(todays, [], today), [todays, today]);
   const monthReport = useMemo(() => buildFinancialReport(transactions, [], month), [transactions, month]);
+  const topBarbers = useMemo(
+    () =>
+      [...monthReport.barbers]
+        .sort((a, b) => b.serviceCount - a.serviceCount || b.revenue - a.revenue)
+        .slice(0, 3),
+    [monthReport.barbers]
+  );
   const pendingGcash = useMemo(
     () => transactions.filter((t) => t.status === 'PENDING_GCASH'),
     [transactions]
@@ -80,6 +87,7 @@ export default function AdminDashboard() {
             actions={[
               { label: 'New Transaction', icon: 'plus', href: '/(admin)/transaction-entry' },
               { label: 'Queue', icon: 'account-clock', href: '/(admin)/queue' },
+              { label: 'Barbers', icon: 'account-tie', href: '/(admin)/barbers' },
               { label: 'Reports', icon: 'chart-box', href: '/(admin)/reports' },
               { label: 'Services', icon: 'content-cut', href: '/(admin)/services' },
               { label: 'Expenses', icon: 'cash-minus', href: '/(admin)/expenses' },
@@ -115,25 +123,26 @@ export default function AdminDashboard() {
           }
         >
           <BarberPerformanceTable rows={todayReport.barbers} />
-          <SectionCard title="🏆 Top Barbers This Month">
-            <StatGrid>
-              <StatCard
-                label="🥇 John Doe"
-                value="₱12,500"
-                tone="success"
+          <SectionCard title="Top Barbers This Month" subtitle="Ranked by customers served">
+            {topBarbers.length === 0 ? (
+              <EmptyState
+                icon="💈"
+                title="No completed services this month"
+                message="Top barbers will appear after completed transactions are recorded."
               />
-
-              <StatCard
-                label="🥈 Mark Cruz"
-                value="₱10,200"
-                tone="accent"
-              />
-
-              <StatCard
-                label="🥉 Ryan Santos"
-                value="₱8,900"
-              />
-            </StatGrid>
+            ) : (
+              <StatGrid>
+                {topBarbers.map((barber, index) => (
+                  <StatCard
+                    key={barber.barberId}
+                    label={`#${index + 1} ${barber.barberName}`}
+                    value={`${barber.serviceCount} ${barber.serviceCount === 1 ? 'Customer' : 'Customers'}`}
+                    hint={formatCurrency(barber.revenue)}
+                    tone={index === 0 ? 'success' : index === 1 ? 'accent' : 'default'}
+                  />
+                ))}
+              </StatGrid>
+            )}
           </SectionCard>
         </SectionCard>
 

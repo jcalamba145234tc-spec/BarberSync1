@@ -12,14 +12,24 @@ const LABELS: Record<string, string> = {
   IN_SERVICE: 'In service',
   CASH: 'Cash',
   GCASH: 'GCash',
+  ACTIVE: 'Active',
+  INACTIVE: 'Inactive',
 };
 
-export function StatusBadge({ status }: { status: string }) {
-  const color = StatusColors[status] ?? (status === 'GCASH' ? Colors.gcash : Colors.cash);
+export function StatusBadge({ status, customLabel }: { status: string; customLabel?: string }) {
+  const color =
+    StatusColors[status] ??
+    (status === 'ACTIVE'
+      ? Colors.success
+      : status === 'INACTIVE'
+      ? Colors.textMuted
+      : status === 'GCASH'
+      ? Colors.gcash
+      : Colors.cash);
   return (
     <View style={[styles.badge, { backgroundColor: `${color}1A`, borderColor: color }]}>
       <Text variant="labelSmall" style={[styles.text, { color }]}>
-        {LABELS[status] ?? status}
+        {customLabel ?? LABELS[status] ?? status}
       </Text>
     </View>
   );

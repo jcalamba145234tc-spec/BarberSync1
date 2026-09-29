@@ -112,13 +112,16 @@ export async function signIn(email: string, password: string): Promise<AppUser> 
     );
   }
   const demoUser = demoUserFor(email);
-  if (!demoUser || password.length < 6) {
+  const cachedBarbers = await readJson<AppUser[]>(STORAGE_KEYS.cachedBarbers, []);
+  const cachedMatch = cachedBarbers.find((b) => b.email.toLowerCase() === email.trim().toLowerCase());
+  const resolvedUser = demoUser || cachedMatch;
+  if (!resolvedUser || password.length < 6) {
     throw new AuthError(
-      'Local mode only accepts the demo accounts (password: any 6+ characters). Configure Firebase in .env for real accounts.'
+      'Local mode only accepts configured demo and staff accounts (password: any 6+ characters). Configure Firebase in .env for real accounts.'
     );
   }
-  await writeJson(STORAGE_KEYS.cachedUser, demoUser);
-  return demoUser;
+  await writeJson(STORAGE_KEYS.cachedUser, resolvedUser);
+  return resolvedUser;
 }
 
 export async function signOut(): Promise<void> {
@@ -151,27 +154,10 @@ export async function restoreSession(): Promise<AppUser | null> {
   });
 }
 
-/** Barber list used by transaction entry and report filters. */
-export async function listBarbers(): Promise<AppUser[]> {
-  if (firestore) {
-    try {
-      const q = query(collection(firestore, COLLECTIONS.users), where('role', '==', 'BARBER'));
-      const snapshot = await getDocs(q);
-      const barbers = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as object) })) as AppUser[];
-      if (barbers.length) return barbers.filter((b) => b.active !== false);
-    } catch (error) {
-      console.warn('[BarberSync] Could not load barbers from Firestore.', error);
-    }
-  }
-  return DEMO_ACCOUNTS.barbers.map((barber, index) => ({
-    id: `demo-barber-${index + 1}`,
-    name: barber.name,
-    email: barber.email,
-    role: 'BARBER' as UserRole,
-    phone: '',
-    active: true,
-    createdAt: new Date().toISOString(),
-  }));
+/** Barber list used by transaction entry, admin management, and report filters. */
+export async function listBarbers(includeInactive = true): Promise<AppUser[]> {
+  const { getBarbers } = await import('./barberService');
+  return getBarbers(includeInactive);
 }
 
 /** Creates or updates the Firestore profile for a user (admin tooling). */
