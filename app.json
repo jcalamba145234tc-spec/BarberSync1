@@ -6,6 +6,11 @@
     "orientation": "portrait",
     "scheme": "barbersync",
     "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#111827"
+    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -27,13 +32,6 @@
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "backgroundColor": "#111827",
-          "resizeMode": "contain"
-        }
-      ],
       [
         "expo-image-picker",
         {
