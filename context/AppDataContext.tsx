@@ -41,8 +41,17 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshBarbers = useCallback(async () => {
+    // Only admins are allowed to read the full staff list (see firestore.rules:
+    // users/{userId} only grants read to isSelf(userId) || isAdmin()). A barber
+    // never needs this list — the transaction form locks them to their own
+    // profile — so skipping the call for barbers avoids a guaranteed
+    // permission-denied warning on every login.
+    if (user?.role !== 'ADMIN') {
+      setBarbers([]);
+      return;
+    }
     setBarbers(await listBarbers());
-  }, []);
+  }, [user?.role]);
 
   const syncNow = useCallback(async () => {
     const queued = await pendingCount();
