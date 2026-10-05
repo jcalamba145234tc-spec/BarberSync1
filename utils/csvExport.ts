@@ -1,5 +1,6 @@
-import * as FileSystem from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import { Platform } from 'react-native';
 import { Transaction } from '../types/transaction';
 import { fileTimestamp, formatDateTime } from './dateUtils';
 
@@ -45,51 +46,53 @@ export function buildTransactionsCsv(transactions: Transaction[]): string {
   return [HEADERS.join(','), ...rows].join('\r\n');
 }
 
-interface ModernFileSystem {
-  File?: new (
-    directory: unknown,
-    name: string
-  ) => { uri: string; create: (options?: { overwrite?: boolean }) => void; write: (data: string) => void };
-  Paths?: { cache: unknown };
-}
-
-/**
- * Writes a text file to the cache directory.
- * SDK 53 exposes the classic helpers (cacheDirectory + writeAsStringAsync).
- * SDK 54+ replaced them with the File/Paths API, which is also exported from
- * the same module, so both are handled from one static import. No dynamic
- * require() is used: an unresolvable path would crash Metro at runtime.
- */
+/** Writes a text file to the native app cache using Expo's current File API. */
 export async function writeTextFile(fileName: string, contents: string): Promise<string> {
-  const classic = FileSystem as unknown as {
-    cacheDirectory?: string | null;
-    writeAsStringAsync?: (uri: string, data: string, options?: object) => Promise<void>;
-  };
-
-  if (classic.cacheDirectory && typeof classic.writeAsStringAsync === 'function') {
-    const uri = `${classic.cacheDirectory}${fileName}`;
-    await classic.writeAsStringAsync(uri, contents, { encoding: 'utf8' });
-    return uri;
-  }
-
-  const modern = FileSystem as unknown as ModernFileSystem;
-  if (modern.File && modern.Paths) {
-    const file = new modern.File(modern.Paths.cache, fileName);
-    file.create({ overwrite: true });
-    file.write(contents);
-    return file.uri;
-  }
-
-  throw new Error('No supported expo-file-system API was found on this device.');
+  const file = new File(Paths.cache, fileName);
+  file.create({ overwrite: true });
+  file.write(contents);
+  return file.uri;
 }
 
-/** Writes the CSV to the device and opens the share sheet. Returns the file URI. */
+function downloadCsvInBrowser(fileName: string, contents: string): void {
+  if (
+    typeof document === 'undefined' ||
+    typeof window === 'undefined' ||
+    typeof Blob === 'undefined' ||
+    typeof URL === 'undefined' ||
+    typeof URL.createObjectURL !== 'function'
+  ) {
+    throw new Error('CSV download is not supported in this browser.');
+  }
+
+  const blob = new Blob([contents], { type: 'text/csv;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = fileName;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  try {
+    link.click();
+  } finally {
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
+}
+
+/** Exports the CSV in the browser or opens the native share sheet. */
 export async function exportTransactionsCsv(transactions: Transaction[]): Promise<string> {
   const csv = buildTransactionsCsv(transactions);
-  const fileUri = await writeTextFile(`barbersync-transactions-${fileTimestamp()}.csv`, csv);
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: 'Export transactions' });
+  const fileName = `barbersync-transactions-${fileTimestamp()}.csv`;
+  if (Platform.OS === 'web') {
+    downloadCsvInBrowser(fileName, csv);
+    return fileName;
   }
+
+  const fileUri = await writeTextFile(fileName, csv);
+  if (!(await Sharing.isAvailableAsync())) {
+    throw new Error('File sharing is unavailable on this device, so the CSV could not be opened.');
+  }
+  await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: 'Export transactions' });
   return fileUri;
 }
-

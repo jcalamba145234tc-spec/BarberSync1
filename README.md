@@ -221,8 +221,9 @@ so changing the percentage later never rewrites history.
 
 ## 10. Export
 
-- **PDF** — Reports screen → *Export PDF*. Renders an HTML report with `expo-print`
-  and opens the native share sheet.
+- **PDF** — Reports screen → *Export PDF*. Renders a print-ready sales report with
+  revenue KPIs, payment breakdown, barber performance, recorded expenses, active
+  filters, and a status-aware transaction ledger; `expo-print` opens the native share sheet.
 - **CSV** — Reports or Transactions screen → *Export CSV*. Columns: Date, Customer, Barber,
   Service, Amount, Shop Share, Barber Share, Payment Method, GCash Reference, Status.
 

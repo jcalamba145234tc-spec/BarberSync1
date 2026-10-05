@@ -74,10 +74,25 @@ export default function ReportsScreen() {
     if (!report) return;
     setExporting('PDF');
     try {
-      await exportReportPdf(report, transactions, settings.shopName);
-      setMessage('PDF report generated.');
-    } catch {
-      setMessage('Could not generate the PDF.');
+      const fileUri = await exportReportPdf(report, transactions, settings.shopName, {
+        shopAddress: settings.shopAddress,
+        shopContact: settings.shopContact,
+        expenses,
+        monthlyFixedExpense: settings.monthlyFixedExpense,
+        paymentMethod: payment ?? undefined,
+        barberName: barbers.find((barber) => barber.id === barberId)?.name,
+        barberNames: barbers.map((barber) => barber.name),
+      });
+      setMessage(
+        fileUri
+          ? 'PDF is ready to share.'
+          : 'Print dialog opened. Choose Save as PDF to save the report.'
+      );
+    } catch (error) {
+      console.error('[BarberSync] Could not export the sales report PDF.', error);
+      setMessage(
+        `Could not export the PDF. ${error instanceof Error ? error.message : 'Please try again.'}`
+      );
     } finally {
       setExporting(null);
     }
@@ -87,9 +102,12 @@ export default function ReportsScreen() {
     setExporting('CSV');
     try {
       await exportTransactionsCsv(transactions);
-      setMessage('CSV exported.');
-    } catch {
-      setMessage('Could not export the CSV.');
+      setMessage('CSV exported or shared successfully.');
+    } catch (error) {
+      console.error('[BarberSync] Could not export the sales report CSV.', error);
+      setMessage(
+        `Could not export the CSV. ${error instanceof Error ? error.message : 'Please try again.'}`
+      );
     } finally {
       setExporting(null);
     }

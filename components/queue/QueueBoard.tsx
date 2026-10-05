@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Button, Chip, Dialog, HelperText, Portal, Snackbar, Text, TextInput } from 'react-native-paper';
 import { Colors } from '../../constants/colors';
 import { useAppData } from '../../context/AppDataContext';
@@ -7,6 +8,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useQueue } from '../../hooks/useQueue';
 import { isActive, recalculateWaitTimes } from '../../services/queueService';
 import { notifyGcashPending, notifyNewTransaction } from '../../services/notificationService';
+import { getGcashScreenshotBase64 } from '../../services/storageService';
 import { createTransaction } from '../../services/transactionService';
 import { QueueEntry } from '../../types/queue';
 import { PaymentMethod } from '../../types/transaction';
@@ -42,6 +44,9 @@ export function QueueBoard() {
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState<PaymentMethod>('CASH');
   const [gcashReference, setGcashReference] = useState('');
+  const [gcashReceiptUri, setGcashReceiptUri] = useState<string | null>(null);
+  const [gcashReceiptBase64, setGcashReceiptBase64] = useState<string | null>(null);
+  const [processingReceipt, setProcessingReceipt] = useState(false);
   const [payBarberId, setPayBarberId] = useState<string>('');
   const [payError, setPayError] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
@@ -71,12 +76,15 @@ export function QueueBoard() {
     const service = services.find((s) => s.id === serviceId);
     if (!service) return;
 
-    const assignedBarberId = isBarberPortal && user ? user.id : barberId;
+    const assignedBarberId = isBarberPortal ? user?.id : barberId;
     if (!assignedBarberId) {
       setErrors({ ...result.errors, barberId: 'Choose the barber requested by the customer.' });
       return;
     }
-    const barber = barbers.find((b) => b.id === assignedBarberId) ?? null;
+    const barber =
+      isBarberPortal && user
+        ? { id: user.id, name: user.name }
+        : barbers.find((b) => b.id === assignedBarberId) ?? null;
     if (!barber) {
       setErrors({ ...result.errors, barberId: 'That barber is no longer available. Choose another barber.' });
       return;
@@ -96,7 +104,11 @@ export function QueueBoard() {
       setCustomerName('');
       setServiceId('');
       setBarberId(isBarberPortal && user ? user.id : null);
+      setErrors({});
       setVisible(false);
+    } catch (error) {
+      console.warn('[BarberSync] Could not add the queue customer.', error);
+      setToast('Could not add customer to the queue. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -108,13 +120,53 @@ export function QueueBoard() {
     setAmount(service ? String(service.price) : '');
     setMethod('CASH');
     setGcashReference('');
+    setGcashReceiptUri(null);
+    setGcashReceiptBase64(null);
+    setProcessingReceipt(false);
     setPayBarberId(entry.barberId ?? (user?.role === 'BARBER' ? user.id : ''));
     setPayError(null);
+  };
+
+  const pickGcashReceipt = async () => {
+    setPayError(null);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setPayError('Photo library permission is required to attach a GCash receipt.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.6,
+      });
+      if (result.canceled || !result.assets.length) return;
+
+      const uri = result.assets[0].uri;
+      setGcashReceiptUri(uri);
+      setGcashReceiptBase64(null);
+      setProcessingReceipt(true);
+      try {
+        const base64 = await getGcashScreenshotBase64(uri);
+        if (!base64) {
+          setPayError('Could not process that receipt. Try a smaller image or a different photo.');
+          return;
+        }
+        setGcashReceiptBase64(base64);
+      } finally {
+        setProcessingReceipt(false);
+      }
+    } catch (error) {
+      console.warn('[BarberSync] Could not select the queue GCash receipt.', error);
+      setPayError('Could not open the photo library. Please try again.');
+    }
   };
 
   const closePayment = () => {
     setPayEntry(null);
     setPayError(null);
+    setGcashReceiptUri(null);
+    setGcashReceiptBase64(null);
   };
 
   const handleRecordPayment = async () => {
@@ -126,6 +178,14 @@ export function QueueBoard() {
     }
     if (method === 'GCASH' && !gcashReference.trim()) {
       setPayError('Enter the GCash reference number.');
+      return;
+    }
+    if (processingReceipt) {
+      setPayError('Still processing the GCash receipt. Please wait a moment.');
+      return;
+    }
+    if (method === 'GCASH' && gcashReceiptUri && !gcashReceiptBase64) {
+      setPayError('The selected receipt could not be processed. Upload it again or remove it before continuing.');
       return;
     }
 
@@ -155,7 +215,8 @@ export function QueueBoard() {
           amount: numericAmount,
           paymentMethod: method,
           gcashReference: method === 'GCASH' ? gcashReference : null,
-          gcashScreenshotLocalUri: null,
+          gcashScreenshotLocalUri: method === 'GCASH' ? gcashReceiptUri : null,
+          gcashScreenshotBase64: method === 'GCASH' ? gcashReceiptBase64 : null,
           createdBy: user.id,
         },
         settings
@@ -233,14 +294,31 @@ export function QueueBoard() {
               label="Customer name"
               mode="outlined"
               value={customerName}
-              onChangeText={setCustomerName}
+              onChangeText={(value) => {
+                setCustomerName(value);
+                setErrors((current) => ({ ...current, customerName: '' }));
+              }}
             />
             <HelperText type="error" visible={!!errors.customerName}>{errors.customerName}</HelperText>
+
+            {isBarberPortal && user && (
+              <>
+                <Text variant="labelLarge" style={styles.label}>Assigned barber</Text>
+                <Text variant="bodyMedium" style={styles.assignedBarber}>{user.name} (your account)</Text>
+              </>
+            )}
 
             <Text variant="labelLarge" style={styles.label}>Service</Text>
             <View style={styles.chips}>
               {activeServices.map((service) => (
-                <Chip key={service.id} selected={serviceId === service.id} onPress={() => setServiceId(service.id)}>
+                <Chip
+                  key={service.id}
+                  selected={serviceId === service.id}
+                  onPress={() => {
+                    setServiceId(service.id);
+                    setErrors((current) => ({ ...current, serviceId: '' }));
+                  }}
+                >
                   {service.name}
                 </Chip>
               ))}
@@ -299,13 +377,49 @@ export function QueueBoard() {
             </View>
 
             {method === 'GCASH' && (
-              <TextInput
-                label="GCash reference number"
-                mode="outlined"
-                value={gcashReference}
-                onChangeText={setGcashReference}
-                style={styles.field}
-              />
+              <View style={styles.receiptSection}>
+                <TextInput
+                  label="GCash reference number"
+                  mode="outlined"
+                  value={gcashReference}
+                  onChangeText={setGcashReference}
+                  style={styles.field}
+                />
+                <Button
+                  mode="outlined"
+                  icon="image-plus"
+                  onPress={pickGcashReceipt}
+                  loading={processingReceipt}
+                  disabled={processingReceipt || paying}
+                >
+                  {processingReceipt
+                    ? 'Processing receipt…'
+                    : gcashReceiptUri
+                      ? 'Change receipt photo'
+                      : 'Upload receipt photo'}
+                </Button>
+                {gcashReceiptUri && (
+                  <View style={styles.receiptPreviewContainer}>
+                    <Image
+                      source={{ uri: gcashReceiptUri }}
+                      style={styles.receiptPreview}
+                      resizeMode="contain"
+                    />
+                    <Button
+                      mode="text"
+                      compact
+                      onPress={() => {
+                        setGcashReceiptUri(null);
+                        setGcashReceiptBase64(null);
+                        setPayError(null);
+                      }}
+                      disabled={paying || processingReceipt}
+                    >
+                      Remove photo
+                    </Button>
+                  </View>
+                )}
+              </View>
             )}
 
             {needsBarberChoice && (
@@ -347,7 +461,11 @@ const styles = StyleSheet.create({
   list: { gap: 10 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   label: { marginTop: 8, marginBottom: 6, color: Colors.textMuted },
+  assignedBarber: { color: Colors.text, fontWeight: '600' },
   field: { marginTop: 8 },
+  receiptSection: { gap: 10, marginTop: 10 },
+  receiptPreviewContainer: { alignItems: 'flex-start', gap: 4 },
+  receiptPreview: { width: 180, height: 120, backgroundColor: Colors.background, borderRadius: 8 },
   muted: { color: Colors.textMuted },
   done: { color: Colors.textMuted },
 });
