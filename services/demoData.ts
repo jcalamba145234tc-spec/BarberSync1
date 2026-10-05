@@ -1,3 +1,9 @@
+/**
+ * Seeds believable sample data (transactions, services, queue, expenses)
+ * into AsyncStorage ONLY - this never touches Firestore. It's what powers
+ * the app when DEMO_MODE is on and/or no real Firebase project is configured,
+ * so the app has something to show without needing a live backend.
+ */
 import { DEMO_ACCOUNTS, DEFAULT_SETTINGS, STORAGE_KEYS } from '../constants/config';
 import { Expense } from '../types/expense';
 import { QueueEntry } from '../types/queue';

@@ -1,3 +1,9 @@
+/**
+ * Admin staff directory: lists every barber, lets the admin add/edit/
+ * deactivate a barber, and shows each one's current-period earnings. This is
+ * the one screen where the full barbers list from AppDataContext is actually
+ * used (barbers themselves never fetch this list - see AppDataContext.tsx).
+ */
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import {

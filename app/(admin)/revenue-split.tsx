@@ -1,3 +1,8 @@
+/**
+ * Lets the admin review/adjust the shop's configured revenue split
+ * percentage, which is what every transaction's split is validated against
+ * both on-device and server-side (see validSplit() in firestore.rules).
+ */
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { SegmentedButtons, Text } from 'react-native-paper';

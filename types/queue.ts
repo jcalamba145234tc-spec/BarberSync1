@@ -1,3 +1,7 @@
+/**
+ * Walk-in queue entry shape, shared by both the admin and barber Queue
+ * screens (components/queue/QueueBoard.tsx) via services/queueService.ts.
+ */
 export type QueueStatus = 'WAITING' | 'CALLED' | 'IN_SERVICE' | 'COMPLETED' | 'CANCELLED';
 
 export interface QueueEntry {

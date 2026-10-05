@@ -1,3 +1,7 @@
+/**
+ * One row/card in the queue list - customer name, service, status, and the
+ * action button appropriate to that status (call next, start, complete).
+ */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Text } from 'react-native-paper';

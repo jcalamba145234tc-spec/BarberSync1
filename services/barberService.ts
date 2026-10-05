@@ -8,6 +8,21 @@ import { firebaseConfig, firestore, isFirebaseConfigured } from './firebase';
 import { createLocalId, readJson, writeJson } from './localStore';
 import { isOnline } from './networkService';
 
+/**
+ * BARBERS (staff profiles, users/ collection): READ / WRITE PATTERN
+ * ----------------------------------------------------------------------
+ * READS: a barber can only read their OWN profile document; only an admin
+ * can list every barber (firestore.rules: isSelf(userId) || isAdmin()).
+ * That's why the full barbers list is only fetched for admin accounts (see
+ * AppDataContext.tsx's refreshBarbers) - a barber calling this would always
+ * get permission-denied, since Firestore can't prove a list query is safe
+ * when the rule depends on each document's own ID.
+ * WRITES: setDoc(..., { merge: true }) for create/update, updateDoc() for
+ * the narrower active/inactive toggle, deleteDoc() for removal - all
+ * admin-only. This file also calls Firebase Auth directly
+ * (createUserWithEmailAndPassword) since adding a barber means creating
+ * both a login account and a Firestore profile document.
+ */
 export const DEFAULT_BARBERS: AppUser[] = [
   {
     id: 'demo-barber-1',

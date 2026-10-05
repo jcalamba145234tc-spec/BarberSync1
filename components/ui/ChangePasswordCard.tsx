@@ -1,3 +1,7 @@
+/**
+ * Self-service password change form, shown on both the admin Settings screen
+ * and the barber Profile screen. Calls services/authService.ts directly.
+ */
 import React, { useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { Button, HelperText, Text, TextInput } from 'react-native-paper';

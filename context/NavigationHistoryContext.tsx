@@ -1,3 +1,8 @@
+/**
+ * Tracks the previously visited screen so HeaderBackButton has something
+ * reliable to go back to, since Expo Router's tab navigation doesn't always
+ * keep a full back-stack the way a plain stack navigator would.
+ */
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useSegments } from 'expo-router';
 

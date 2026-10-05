@@ -7,6 +7,17 @@ import { createLocalId, readJson, writeJson } from './localStore';
 import { isOnline } from './networkService';
 import { enqueueOp } from './pendingOps';
 
+/**
+ * EXPENSES: READ / WRITE PATTERN
+ * -------------------------------
+ * Admin-only collection (enforced in firestore.rules, not just in the UI).
+ * READS are one-time getDocs() calls, cached locally on success and read
+ * back from that cache on failure or when offline - same pattern as every
+ * other service in this app, so reports still show a number instead of a
+ * blank screen with no connection.
+ * WRITES use setDoc(..., { merge: true }) with a device-generated ID, so a
+ * retried save can never create a duplicate expense row.
+ */
 const CACHE_KEY = '@barbersync/cached-expenses';
 
 async function cache(expenses: Expense[]): Promise<void> {

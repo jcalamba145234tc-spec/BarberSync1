@@ -1,3 +1,9 @@
+/**
+ * Initializes the Firebase app/Auth/Firestore/Storage instances from .env
+ * variables. isFirebaseConfigured is the flag every other service checks
+ * before attempting a real Firestore call - when false, the app runs in
+ * local-only demo mode instead (see services/demoData.ts).
+ */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { Auth, getAuth, initializeAuth, type Persistence } from 'firebase/auth';

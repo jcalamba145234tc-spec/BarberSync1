@@ -1,3 +1,8 @@
+/**
+ * Loads and manages the walk-in queue for a screen - optionally scoped to one
+ * barber's own entries. Wraps services/queueService.ts and exposes simple
+ * loading/busy state for the UI.
+ */
 import { useCallback, useMemo, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { QueueEntry, QueueInput, QueueStatus } from '../types/queue';

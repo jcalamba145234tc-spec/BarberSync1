@@ -10,6 +10,18 @@ import { firestore } from './firebase';
 import { readJson, writeJson } from './localStore';
 import { isOnline } from './networkService';
 
+/**
+ * ATTENDANCE: READ / WRITE PATTERN
+ * ----------------------------------
+ * One Firestore document per calendar day, read with getDoc() and written
+ * with setDoc(..., { merge: true }) - a one-time read/write, not a live
+ * listener, so the admin needs to reopen or refresh the screen to see
+ * changes made from another device. Reads fall back to the local
+ * AsyncStorage cache (see readAttendanceMap/writeAttendanceMap below) when
+ * offline or when Firestore rejects the read, e.g. firestore.rules not yet
+ * covering the attendance/ collection.
+ */
+
 async function readAttendanceMap(): Promise<Record<string, DailyAttendance>> {
   return readJson<Record<string, DailyAttendance>>(STORAGE_KEYS.cachedAttendance, {});
 }

@@ -1,3 +1,8 @@
+/**
+ * The shared walk-in queue UI used by both the admin and barber Queue tabs
+ * (see app/(admin)/queue.tsx and app/(barber)/queue.tsx, which just render
+ * this same component). Wraps hooks/useQueue.ts.
+ */
 import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Chip, Dialog, HelperText, Portal, Snackbar, Text, TextInput } from 'react-native-paper';

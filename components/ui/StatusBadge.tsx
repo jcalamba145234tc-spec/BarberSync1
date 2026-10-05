@@ -1,3 +1,7 @@
+/**
+ * Colored label for a transaction/queue status (e.g. Completed, Pending
+ * GCash, Waiting) - purely presentational, maps a status string to a color.
+ */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';

@@ -1,3 +1,9 @@
+/**
+ * App-wide constants: Firestore collection names (COLLECTIONS, the single
+ * source of truth so a typo'd collection name can't silently create a new
+ * one), default shop settings, demo account credentials used in local mode,
+ * and the AsyncStorage keys used for offline caching.
+ */
 import { ShopSettings } from '../types/report';
 
 /** Firestore collection names (single source of truth). */

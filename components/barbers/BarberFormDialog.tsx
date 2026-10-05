@@ -1,3 +1,8 @@
+/**
+ * Add/edit form for a barber profile, used by the admin Barbers screen.
+ * Creating a barber here also creates a real Firebase Auth login account
+ * (see services/barberService.ts), not just a Firestore profile document.
+ */
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import {

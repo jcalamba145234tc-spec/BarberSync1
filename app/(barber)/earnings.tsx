@@ -1,3 +1,7 @@
+/**
+ * A barber's own earnings only - no shop-wide revenue, no other barbers'
+ * numbers, matching what firestore.rules actually allows a barber to read.
+ */
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { SegmentedButtons, Text } from 'react-native-paper';

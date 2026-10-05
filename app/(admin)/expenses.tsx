@@ -1,3 +1,7 @@
+/**
+ * Admin-only expense log (rent, utilities, supplies, etc.), feeding into the
+ * net-profit calculation on the Reports screen.
+ */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Chip, Dialog, HelperText, Portal, Text, TextInput } from 'react-native-paper';

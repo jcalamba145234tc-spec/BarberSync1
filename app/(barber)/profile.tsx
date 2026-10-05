@@ -1,3 +1,7 @@
+/**
+ * A barber's own profile screen - view their info and change their own
+ * password via ChangePasswordCard.
+ */
 import React from 'react';
 import { StyleSheet } from 'react-native';
 import { Button, Text } from 'react-native-paper';

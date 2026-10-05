@@ -1,3 +1,8 @@
+/**
+ * Holds the signed-in user and exposes login/logout. Wraps
+ * services/authService.ts so the rest of the app never calls Firebase Auth
+ * directly - only this context does.
+ */
 import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppUser } from '../types/auth';
 import { describeAuthError, restoreSession, signIn, signOut } from '../services/authService';

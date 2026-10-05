@@ -1,3 +1,7 @@
+/**
+ * Entry route: redirects based on auth state - not logged in -> Login
+ * screen, ADMIN -> admin dashboard, BARBER -> barber dashboard.
+ */
 import React from 'react';
 import { Redirect } from 'expo-router';
 import { LoadingState } from '../components/ui/LoadingState';

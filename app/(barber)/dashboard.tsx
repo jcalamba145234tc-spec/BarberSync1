@@ -1,3 +1,7 @@
+/**
+ * Barber home screen: today's personal stats and quick shortcuts (log a
+ * sale, view queue).
+ */
 import React, { useMemo } from 'react';
 import { StyleSheet } from 'react-native';
 import { FAB, Text } from 'react-native-paper';

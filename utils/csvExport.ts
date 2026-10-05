@@ -1,3 +1,7 @@
+/**
+ * Builds a CSV file from a list of transactions and opens the device's share
+ * sheet (expo-file-system + expo-sharing) so the admin can export/send it.
+ */
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Transaction } from '../types/transaction';

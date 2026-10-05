@@ -1,3 +1,7 @@
+/**
+ * Date formatting and range helpers (e.g. "is this date within the selected
+ * report period") shared across reports, transactions, and attendance.
+ */
 import { ReportRange } from '../types/report';
 
 const MONTHS = [

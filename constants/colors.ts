@@ -1,3 +1,7 @@
+/**
+ * Central color palette for the app's styling. Changing a value here updates
+ * that color everywhere it's used, instead of hunting through every screen.
+ */
 export const Colors = {
   primary: '#111827',
   primaryLight: '#1F2937',

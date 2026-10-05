@@ -12,6 +12,21 @@ import { flushPendingOps, pendingOpsCount } from './pendingOps';
 import { readJson } from './localStore';
 import { STORAGE_KEYS } from '../constants/config';
 
+/**
+ * SYNC ORCHESTRATION
+ * --------------------
+ * Doesn't talk to Firestore directly - it replays what's already queued in
+ * two other places once networkService confirms the device is back online:
+ *   1. New transactions saved while offline (transactionService's
+ *      pending-transactions queue) are re-sent with pushTransaction(), which
+ *      uses the transaction's own local ID as the Firestore document ID, so
+ *      a repeated sync can never create a duplicate transaction.
+ *   2. Queued edits - GCash verifications, cancellations, queue/expense
+ *      changes made while offline - are replayed by flushPendingOps() from
+ *      pendingOps.ts.
+ * This two-queue split exists because a brand-new record and an edit to an
+ * existing one need different handling when the retry itself fails again.
+ */
 export interface SyncResult {
   synced: number;
   remaining: number;

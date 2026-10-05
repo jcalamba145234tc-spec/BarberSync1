@@ -1,3 +1,6 @@
+/**
+ * Bare stack layout for the login flow, with the header hidden.
+ */
 import React from 'react';
 import { Stack } from 'expo-router';
 

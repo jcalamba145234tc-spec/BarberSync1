@@ -1,3 +1,8 @@
+/**
+ * Loads transactions for a screen with the given filters, with a manual
+ * refresh function exposed - wraps services/transactionService.ts's
+ * getTransactions (see that file for the actual read/offline pattern).
+ */
 import { useCallback, useEffect, useState } from 'react';
 import { Transaction, TransactionFilters } from '../types/transaction';
 import { getTransactions } from '../services/transactionService';

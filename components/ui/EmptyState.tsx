@@ -1,3 +1,8 @@
+/**
+ * Generic "nothing here yet" placeholder (icon + message + optional action
+ * button), reused across every list screen instead of each screen rolling
+ * its own empty-state markup.
+ */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Text } from 'react-native-paper';

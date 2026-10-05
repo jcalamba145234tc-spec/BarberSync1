@@ -1,3 +1,7 @@
+/**
+ * Shape of one entry in the shop's service/price menu, managed by admins in
+ * services/serviceService.ts and read by every screen that logs a sale.
+ */
 export interface BarberService {
   id: string;
   name: string;

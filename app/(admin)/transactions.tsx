@@ -1,3 +1,10 @@
+/**
+ * Admin view of every transaction, with GCash verification/rejection and the
+ * screenshot proof dialog. See that dialog's fallback order: Firebase
+ * Storage URL, then the base64 copy stored directly in Firestore, then the
+ * barber's local-only file as a last resort - the base64 path exists
+ * specifically because Storage needs a paid Firebase plan to work reliably.
+ */
 import React, { useMemo, useState } from 'react';
 import { Image, Linking, StyleSheet, View } from 'react-native';
 import { Button, Chip, Dialog, Portal, SegmentedButtons, Text } from 'react-native-paper';

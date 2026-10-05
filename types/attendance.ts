@@ -1,3 +1,8 @@
+/**
+ * Shapes for the daily attendance feature: one DailyAttendance document per
+ * calendar day (id = "YYYY-MM-DD"), holding one BarberAttendanceRecord per
+ * staff member for that day. Written/read by services/attendanceService.ts.
+ */
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'OFF';
 
 export interface BarberAttendanceRecord {

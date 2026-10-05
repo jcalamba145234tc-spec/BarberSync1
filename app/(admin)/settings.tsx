@@ -1,3 +1,7 @@
+/**
+ * Admin shop settings screen - shop name, minimum service price, and the
+ * admin's own password change (via ChangePasswordCard).
+ */
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Divider, HelperText, Switch, Text, TextInput } from 'react-native-paper';

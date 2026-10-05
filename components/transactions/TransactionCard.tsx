@@ -1,3 +1,7 @@
+/**
+ * One row in a transaction list - amount, barber, payment method and status.
+ * Used on both the admin and barber Transactions screens.
+ */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';

@@ -1,3 +1,7 @@
+/**
+ * Admin-only table showing each barber's service count, revenue, and
+ * earnings for the selected report period.
+ */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';

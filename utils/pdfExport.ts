@@ -1,3 +1,7 @@
+/**
+ * Renders a financial report as HTML and uses expo-print to turn it into a
+ * PDF, then expo-sharing to let the admin save or send it.
+ */
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { FinancialReport } from '../types/report';

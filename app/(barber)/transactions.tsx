@@ -1,3 +1,7 @@
+/**
+ * A barber's own transaction history only, scoped by the same
+ * where('barberId','==',uid) filter firestore.rules enforces server-side.
+ */
 import React, { useMemo } from 'react';
 import { StyleSheet } from 'react-native';
 import { Button, Text } from 'react-native-paper';

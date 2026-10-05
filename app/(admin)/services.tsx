@@ -1,3 +1,7 @@
+/**
+ * Admin screen for managing the service/price menu barbers choose from when
+ * logging a sale.
+ */
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, FAB, Switch, Text } from 'react-native-paper';
