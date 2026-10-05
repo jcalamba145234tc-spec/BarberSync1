@@ -1,3 +1,9 @@
+/**
+ * The core Transaction record: one sale, its payment method, computed
+ * shop/barber split, and (for GCash) verification + screenshot fields.
+ * Written/read by services/transactionService.ts; see that file's header for
+ * the read/write and offline-sync pattern this type flows through.
+ */
 export type PaymentMethod = 'CASH' | 'GCASH';
 export type TransactionStatus = 'COMPLETED' | 'PENDING_GCASH' | 'CANCELLED';
 

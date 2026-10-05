@@ -1,3 +1,9 @@
+/**
+ * Pure money-math functions: the shop/barber revenue split, rounding to 2
+ * decimals so totals never drift from floating-point error, and building the
+ * financial report totals. No Firebase or React here on purpose, so this
+ * logic is easy to unit test in isolation.
+ */
 import { DEFAULT_SETTINGS } from '../constants/config';
 import { Expense } from '../types/expense';
 import { BarberPerformance, FinancialReport, ReportRange, ShopSettings } from '../types/report';

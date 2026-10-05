@@ -1,3 +1,7 @@
+/**
+ * Admin financial report screen: pick a date range, see revenue/expenses/net
+ * and per-barber performance. Backed by hooks/useReport.ts.
+ */
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Chip, HelperText, SegmentedButtons, Text, TextInput } from 'react-native-paper';

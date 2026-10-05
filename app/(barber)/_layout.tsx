@@ -1,3 +1,8 @@
+/**
+ * Tab layout for barber-only screens (Dashboard, Queue, Transactions,
+ * Earnings, Profile), wrapped in RoleGuard so an admin account routes
+ * elsewhere and a signed-out user can't reach these tabs at all.
+ */
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';

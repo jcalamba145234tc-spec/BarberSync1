@@ -27,7 +27,31 @@ import { firestore } from './firebase';
 import { createLocalId, readJson, writeJson } from './localStore';
 import { isOnline } from './networkService';
 import { enqueueOp } from './pendingOps';
-import { getGcashScreenshotBase64, uploadGcashScreenshot } from './storageService';
+import { getGcashScreenshotBase64 } from './storageService';
+
+/**
+ * TRANSACTIONS: READ / WRITE PATTERN
+ * -----------------------------------
+ * READS (getTransactions): one-time Firestore reads via getDocs(), not a live
+ * onSnapshot() listener. A screen only sees fresh data when it re-fetches
+ * (on focus, or pull-to-refresh) - another device's changes don't appear here
+ * automatically. On success the result is cached to AsyncStorage; on failure
+ * (offline, or a permissions error) the last cached copy is returned instead.
+ *
+ * WRITES (pushTransaction / pushOrQueueUpdate): every write uses setDoc() with
+ * an ID generated on the device (see createLocalId in localStore.ts), not
+ * addDoc() with a Firestore-generated ID. That is what makes retries safe -
+ * re-sending the same transaction overwrites the same document instead of
+ * creating a duplicate. New transactions always pass { merge: true } and stamp
+ * serverCreatedAt with Firestore's own clock (serverTimestamp()), so a phone
+ * with a wrong or deliberately changed date/time cannot backdate a sale - this
+ * is also checked server-side in firestore.rules.
+ *
+ * OFFLINE: if a write can't reach Firestore, it is NOT dropped. New
+ * transactions go to the pending-transactions queue (queueForSync); edits to
+ * existing transactions go to the pending-ops queue (pendingOps.ts). Both
+ * queues are replayed by syncService.ts once the connection returns.
+ */
 
 /** The signed-in profile, used to scope reads the way the security rules do. */
 async function currentUser(): Promise<AppUser | null> {
@@ -88,17 +112,8 @@ async function queueForSync(transaction: Transaction): Promise<void> {
 /** Writes one transaction to Firestore using its local id (idempotent). */
 export async function pushTransaction(transaction: Transaction): Promise<Transaction> {
   if (!firestore) throw new Error('Firestore is not configured.');
-  let screenshotUrl = transaction.gcashScreenshotUrl;
-  if (!screenshotUrl && transaction.gcashScreenshotLocalUri) {
-    screenshotUrl = await uploadGcashScreenshot(
-      transaction.gcashScreenshotLocalUri,
-      transaction.id,
-      transaction.createdBy
-    );
-  }
   const payload: Transaction = {
     ...transaction,
-    gcashScreenshotUrl: screenshotUrl ?? null,
     synced: true,
   };
   // The local device URI never leaves the phone.

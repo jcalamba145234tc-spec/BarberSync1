@@ -1,3 +1,8 @@
+/**
+ * Thin hook wrapper around AuthContext so screens don't import the context
+ * directly. Throws early if used outside AuthProvider, which catches a
+ * missing provider during development instead of a confusing runtime crash.
+ */
 import { useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
 

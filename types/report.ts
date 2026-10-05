@@ -1,3 +1,9 @@
+/**
+ * Shapes for the generated financial report (services/reportService.ts /
+ * utils/calculations.ts): totals, per-barber performance, and the date range
+ * the report covers. ShopSettings here is also the single source of truth for
+ * the split percentage and minimum service price used across the app.
+ */
 import { PaymentMethod } from './transaction';
 
 export interface ReportRange {

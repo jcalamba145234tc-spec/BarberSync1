@@ -1,3 +1,7 @@
+/**
+ * Small metric display tile (label + value, optional tone/color), used on
+ * dashboards to show things like today's revenue or pending count.
+ */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';

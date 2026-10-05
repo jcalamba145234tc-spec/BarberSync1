@@ -1,3 +1,7 @@
+/**
+ * Admin home screen: today's key numbers plus the quick-action shortcuts and
+ * barber performance table for the current period.
+ */
 import React, { useMemo } from 'react';
 import { StyleSheet } from 'react-native';
 import { Button, FAB, Text } from 'react-native-paper';

@@ -1,3 +1,7 @@
+/**
+ * Reusable titled card container used to group related fields/content on a
+ * screen - a layout primitive, holds no data-fetching logic of its own.
+ */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Card, Text } from 'react-native-paper';

@@ -1,3 +1,7 @@
+/**
+ * Small reusable wrapper around react-native-paper's Snackbar for showing a
+ * one-off success/error message after an action, used across most screens.
+ */
 import React from 'react';
 import { Snackbar } from 'react-native-paper';
 

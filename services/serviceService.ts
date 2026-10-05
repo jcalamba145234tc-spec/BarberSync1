@@ -5,6 +5,16 @@ import { firestore } from './firebase';
 import { createLocalId, readJson, writeJson } from './localStore';
 import { isOnline } from './networkService';
 
+/**
+ * SERVICES (the menu/price list): READ / WRITE PATTERN
+ * -------------------------------------------------------
+ * Any signed-in user can READ this collection (barbers need prices to log a
+ * sale) but only an admin can WRITE to it - enforced in firestore.rules.
+ * Reads are one-time getDocs() calls with an AsyncStorage cache fallback,
+ * same pattern as the rest of the app. Writes use setDoc(..., { merge: true })
+ * for create/update and deleteDoc() for removal, with updateDoc() used for
+ * the narrower active/inactive toggle.
+ */
 export const DEFAULT_SERVICES: ServiceInput[] = [
   { name: 'Haircut', price: 150, durationMinutes: 20, active: true },
   { name: 'Haircut + Beard', price: 200, durationMinutes: 30, active: true },

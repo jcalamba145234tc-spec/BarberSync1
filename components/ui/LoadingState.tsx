@@ -1,3 +1,7 @@
+/**
+ * Generic loading spinner + message, reused across every screen while data
+ * is being fetched from Firestore or the local cache.
+ */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Text } from 'react-native-paper';

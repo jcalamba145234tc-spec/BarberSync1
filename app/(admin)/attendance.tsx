@@ -1,3 +1,9 @@
+/**
+ * Admin daily attendance screen: mark each barber present/absent/late/off
+ * for the current day. Reads/writes through services/attendanceService.ts -
+ * requires firestore.rules to actually include a match block for the
+ * attendance/ collection, or every read/write here gets permission-denied.
+ */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import {

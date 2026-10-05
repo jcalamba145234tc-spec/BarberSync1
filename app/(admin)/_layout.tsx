@@ -1,3 +1,8 @@
+/**
+ * Tab layout for every admin-only screen (Dashboard, Transactions, Queue,
+ * Barbers, Reports, Settings, etc.), wrapped in RoleGuard so a barber account
+ * can never reach these tabs, even by direct URL.
+ */
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Tabs, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';

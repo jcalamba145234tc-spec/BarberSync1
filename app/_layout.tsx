@@ -1,3 +1,9 @@
+/**
+ * Root layout: wraps the whole app in the theme provider and AuthProvider,
+ * and seeds local demo data on first launch when DEMO_MODE is enabled (see
+ * services/demoData.ts - this seeding only writes to AsyncStorage, never
+ * Firestore, so it's safe to leave on during development).
+ */
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { Slot } from 'expo-router';

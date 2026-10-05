@@ -1,3 +1,9 @@
+/**
+ * Client-side route protection: redirects to Login if not signed in, and
+ * redirects a barber away from any admin-only screen even if they type the
+ * URL directly. This is a convenience/UX layer only - the real enforcement
+ * is server-side in firestore.rules, which this component cannot bypass.
+ */
 import React from 'react';
 import { Redirect } from 'expo-router';
 import { UserRole } from '../../types/auth';

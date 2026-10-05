@@ -1,3 +1,9 @@
+/**
+ * App-wide data shared across every screen after login: shop settings,
+ * service menu, barber list (admin-only, see refreshBarbers below), live
+ * connection state, and pending-sync count. Centralizing this here means a
+ * screen doesn't each need to independently fetch the same shared data.
+ */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { DEFAULT_SETTINGS } from '../constants/config';
 import { AppUser } from '../types/auth';

@@ -1,3 +1,10 @@
+/**
+ * Login screen. In local/demo mode (no Firebase env vars configured) it
+ * accepts the documented demo accounts with any 6+ character password; once
+ * real Firebase credentials are configured, it requires an actual matching
+ * Firebase Auth account - demo email/password alone is not enough at that
+ * point (see services/authService.ts's signIn()).
+ */
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Dialog, HelperText, Portal, Snackbar, Text, TextInput } from 'react-native-paper';

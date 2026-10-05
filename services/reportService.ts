@@ -1,3 +1,10 @@
+/**
+ * Combines transactions + expenses for a date range into one FinancialReport
+ * via utils/calculations.ts. Inherits the 500-record cap from
+ * getTransactions() in transactionService.ts - a very high-volume period
+ * could theoretically have older records excluded before the date filter is
+ * even applied.
+ */
 import { Expense } from '../types/expense';
 import { FinancialReport, ReportFilters, ShopSettings } from '../types/report';
 import { Transaction } from '../types/transaction';

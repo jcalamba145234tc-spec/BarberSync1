@@ -1,3 +1,7 @@
+/**
+ * Add/edit form for one entry in the service/price menu, used by the admin
+ * Services screen. Validates against the shop's configured minimum price.
+ */
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Dialog, HelperText, Portal, Switch, Text, TextInput } from 'react-native-paper';

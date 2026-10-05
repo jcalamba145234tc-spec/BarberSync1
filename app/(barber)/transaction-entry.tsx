@@ -1,3 +1,8 @@
+/**
+ * Lets a barber log a sale for themselves. The barber field is locked to the
+ * logged-in user (lockBarberToCurrentUser in TransactionEntryForm) - they
+ * cannot log a sale under another barber's name.
+ */
 import React, { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { AppSnackbar } from '../../components/ui/AppSnackbar';

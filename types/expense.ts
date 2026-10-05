@@ -1,3 +1,7 @@
+/**
+ * Shop expense record shape (rent, utilities, supplies, etc.), written and
+ * read only by admins via services/expenseService.ts and shown in reports.
+ */
 export type ExpenseCategory = 'RENT' | 'UTILITIES' | 'SUPPLIES' | 'MAINTENANCE' | 'OTHER';
 
 export interface Expense {

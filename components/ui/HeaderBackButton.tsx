@@ -1,3 +1,8 @@
+/**
+ * Custom back button that only renders when there's actually somewhere to go
+ * back to (see NavigationHistoryContext), so screens with no history don't
+ * show a dead-end back arrow.
+ */
 import React from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';

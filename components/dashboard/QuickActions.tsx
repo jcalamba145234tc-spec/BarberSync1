@@ -1,3 +1,7 @@
+/**
+ * Row of shortcut buttons on the dashboard (e.g. "Log a transaction") that
+ * navigate to other screens - no data fetching, purely navigation.
+ */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button } from 'react-native-paper';

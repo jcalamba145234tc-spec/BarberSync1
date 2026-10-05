@@ -1,3 +1,8 @@
+/**
+ * Shared screen wrapper (scroll container + optional pull-to-refresh) used
+ * by nearly every screen in the app, so padding/background/refresh behavior
+ * stays consistent without repeating it on each screen.
+ */
 import React from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View, ViewStyle } from 'react-native';
 import { Colors } from '../../constants/colors';

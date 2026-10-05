@@ -1,3 +1,7 @@
+/**
+ * Renders the computed FinancialReport totals (revenue, expenses, net,
+ * barber payouts) as a readable breakdown on the admin Reports screen.
+ */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Divider, Text } from 'react-native-paper';

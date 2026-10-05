@@ -1,3 +1,8 @@
+/**
+ * Lets an admin log a transaction on behalf of any barber (unlike the barber
+ * version of this screen, which locks the barber field to the logged-in
+ * user - see components/transactions/TransactionEntryForm.tsx).
+ */
 import React, { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { AppSnackbar } from '../../components/ui/AppSnackbar';

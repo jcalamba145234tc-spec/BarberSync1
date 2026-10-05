@@ -1,3 +1,7 @@
+/**
+ * Read-only detail popup for one barber's profile, shown from the admin
+ * Barbers screen - contact info, specialties, and basic stats.
+ */
 import React from 'react';
 import { Linking, ScrollView, StyleSheet, View } from 'react-native';
 import {

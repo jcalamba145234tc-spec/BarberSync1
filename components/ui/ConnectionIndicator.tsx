@@ -1,3 +1,8 @@
+/**
+ * The online/offline/syncing pill shown in every screen's header. Reads
+ * connection state from AppDataContext, which itself comes from
+ * services/networkService.ts's NetInfo subscription.
+ */
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';

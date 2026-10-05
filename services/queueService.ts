@@ -8,6 +8,18 @@ import { createLocalId, readJson, writeJson } from './localStore';
 import { isOnline } from './networkService';
 import { enqueueOp } from './pendingOps';
 
+/**
+ * QUEUE: READ / WRITE PATTERN
+ * -----------------------------
+ * READS: one-time getDocs(), cached to AsyncStorage on success and read back
+ * from that cache when offline/on error - no live listener, so both the
+ * barber and admin queue screens only update on refetch (e.g. on focus).
+ * WRITES: setDoc(..., { merge: true }) with a device-generated ID, same
+ * idempotent-retry pattern used everywhere else in this app. Barbers may
+ * only change a limited set of fields on an existing entry (see
+ * onlyStatusFieldsChanged() in firestore.rules) - they cannot reassign a
+ * queue entry to someone else or rewrite the customer/service/arrival time.
+ */
 const ACTIVE_STATUSES: QueueStatus[] = ['WAITING', 'CALLED', 'IN_SERVICE'];
 const FALLBACK_DURATION_MINUTES = 20;
 

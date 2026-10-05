@@ -1,3 +1,8 @@
+/**
+ * Form validation for transaction/service entry forms - checks required
+ * fields and minimum amounts before a save is even attempted, so obviously
+ * invalid data never reaches Firestore in the first place.
+ */
 import { PaymentMethod } from '../types/transaction';
 
 export interface ValidationResult {

@@ -1,3 +1,8 @@
+/**
+ * Shared user/auth shapes. AppUser is the Firestore users/{uid} profile
+ * document (role, active flag, commission rate); UserRole gates admin vs
+ * barber screens via components/ui/RoleGuard.tsx and firestore.rules.
+ */
 export type UserRole = 'ADMIN' | 'BARBER';
 
 export interface AppUser {

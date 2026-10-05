@@ -1,3 +1,11 @@
+/**
+ * Local (on-device) notifications only - NOT push notifications to another
+ * phone. expo-notifications is disabled entirely inside Expo Go as of recent
+ * SDKs, so this file detects that (isExpoGo) and no-ops gracefully instead of
+ * crashing. Getting real cross-device alerts (e.g. the owner notified on
+ * their own phone when a barber logs a sale) needs Firebase Cloud Messaging
+ * plus a Cloud Function, which this file does not implement.
+ */
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { DEFAULT_SETTINGS, STORAGE_KEYS } from '../constants/config';

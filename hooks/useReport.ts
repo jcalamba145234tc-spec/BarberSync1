@@ -1,3 +1,7 @@
+/**
+ * Loads a financial report (and the transactions/expenses behind it) for a
+ * given filter/date range, re-running whenever the filters change.
+ */
 import { useCallback, useEffect, useState } from 'react';
 import { FinancialReport, ReportFilters, ShopSettings } from '../types/report';
 import { Transaction } from '../types/transaction';
