@@ -27,7 +27,7 @@ import { firestore } from './firebase';
 import { createLocalId, readJson, writeJson } from './localStore';
 import { isOnline } from './networkService';
 import { enqueueOp } from './pendingOps';
-import { getGcashScreenshotBase64, uploadGcashScreenshot } from './storageService';
+import { getGcashScreenshotBase64 } from './storageService';
 
 /**
  * TRANSACTIONS: READ / WRITE PATTERN
@@ -112,17 +112,8 @@ async function queueForSync(transaction: Transaction): Promise<void> {
 /** Writes one transaction to Firestore using its local id (idempotent). */
 export async function pushTransaction(transaction: Transaction): Promise<Transaction> {
   if (!firestore) throw new Error('Firestore is not configured.');
-  let screenshotUrl = transaction.gcashScreenshotUrl;
-  if (!screenshotUrl && transaction.gcashScreenshotLocalUri) {
-    screenshotUrl = await uploadGcashScreenshot(
-      transaction.gcashScreenshotLocalUri,
-      transaction.id,
-      transaction.createdBy
-    );
-  }
   const payload: Transaction = {
     ...transaction,
-    gcashScreenshotUrl: screenshotUrl ?? null,
     synced: true,
   };
   // The local device URI never leaves the phone.

@@ -1,5 +1,5 @@
 /**
- * Initializes the Firebase app/Auth/Firestore/Storage instances from .env
+ * Initializes the Firebase app/Auth/Firestore instances from .env
  * variables. isFirebaseConfigured is the flag every other service checks
  * before attempting a real Firestore call - when false, the app runs in
  * local-only demo mode instead (see services/demoData.ts).
@@ -8,7 +8,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { Auth, getAuth, initializeAuth, type Persistence } from 'firebase/auth';
 import { Firestore, initializeFirestore } from 'firebase/firestore';
-import { FirebaseStorage, getStorage } from 'firebase/storage';
 
 /**
  * Firebase configuration is read from environment variables (.env).
@@ -58,7 +57,6 @@ function reactNativePersistence(): { persistence: Persistence } | null {
 let app: FirebaseApp | null = null;
 let authInstance: Auth | null = null;
 let dbInstance: Firestore | null = null;
-let storageInstance: FirebaseStorage | null = null;
 
 if (isFirebaseConfigured) {
   try {
@@ -71,32 +69,17 @@ if (isFirebaseConfigured) {
       authInstance = getAuth(app);
     }
     dbInstance = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
-    // Storage is optional (it needs the Blaze plan). If it is unavailable the
-    // app still works: GCash screenshots simply stay on the device and only the
-    // reference number is synced. Guarded separately so a missing bucket can
-    // never take Firestore down with it.
-    if (firebaseConfig.storageBucket) {
-      try {
-        storageInstance = getStorage(app);
-      } catch (storageError) {
-        console.warn('[BarberSync] Storage unavailable, screenshots stay local.', storageError);
-        storageInstance = null;
-      }
-    }
   } catch (error) {
     console.warn('[BarberSync] Firebase failed to initialize, falling back to local mode.', error);
     app = null;
     authInstance = null;
     dbInstance = null;
-    storageInstance = null;
   }
 }
 
 export const firebaseApp = app;
 export const firebaseAuth = authInstance;
 export const firestore = dbInstance;
-export const firebaseStorage = storageInstance;
-
 /** True when Firebase is ready to be used for reads/writes. */
 export function firebaseReady(): boolean {
   return Boolean(firestore && firebaseAuth);

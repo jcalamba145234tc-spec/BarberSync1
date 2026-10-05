@@ -63,6 +63,21 @@ service cloud.firestore {
       return data.serverCreatedAt == request.time;
     }
 
+    // setDoc(..., { merge: true }) is used for idempotent offline sync. If a
+    // create reached Firestore but its response was lost, the retry is an
+    // update. Permit that retry only when the transaction itself is unchanged;
+    // the server timestamp and local sync marker are the only mutable fields.
+    function isTransactionSyncRetry() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['serverCreatedAt', 'synced'])
+        && serverStamped(request.resource.data)
+        && request.resource.data.barberId == request.auth.uid
+        && request.resource.data.createdBy == request.auth.uid
+        && validSplit(request.resource.data)
+        && request.resource.data.gcashVerified == false
+        && request.resource.data.status != 'CANCELLED';
+    }
+
     // ---------- users ----------
     match /users/{userId} {
       // A barber can read their own profile; the admin can read all of them.
@@ -94,8 +109,11 @@ service cloud.firestore {
           && request.resource.data.gcashVerified == false
           && request.resource.data.status != 'CANCELLED');
 
-      // Verifying payments, cancelling and any other edit is admin-only.
-      allow update, delete: if isAdmin();
+      // A barber may only repeat an unchanged create after an uncertain
+      // network response. Payment verification, cancellation and other edits
+      // remain admin-only.
+      allow update: if isAdmin() || (isBarber() && isTransactionSyncRetry());
+      allow delete: if isAdmin();
     }
 
     // ---------- queue ----------

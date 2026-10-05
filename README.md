@@ -125,19 +125,15 @@ Demo content (services, transactions, queue, expenses) is seeded on first launch
 
 ---
 
-### A note on Storage (Blaze plan)
+### GCash screenshots
 
-Firebase now requires the **Blaze (pay-as-you-go)** plan to enable Cloud Storage on new
-projects. If you skip Storage, **the app still works**:
+Compressed GCash screenshots are saved in the transaction document in Firestore, so
+they can be viewed by the admin on another device without Firebase Cloud Storage.
+Screenshots are capped at 350 KB of base64 text to stay under Firestore's document
+size limit. The app does not attempt Cloud Storage uploads.
 
-- `uploadGcashScreenshot()` returns `null` and the error is caught.
-- The screenshot stays on the device (`gcashScreenshotLocalUri`) and is still shown to the
-  admin in the verification dialog.
-- The GCash **reference number is still saved to Firestore**, so the paper trail is intact.
-- Verify / Reject still behave normally.
-
-The only thing you lose is screenshots syncing to other devices. Enable Storage later
-(and deploy `storage.rules`) and uploads start working with no code changes.
+For a physical phone that cannot reach the development server over the local network,
+start Expo with `npm run start:tunnel`.
 
 ## 6. Project structure
 
