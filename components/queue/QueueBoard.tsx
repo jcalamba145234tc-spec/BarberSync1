@@ -25,11 +25,16 @@ import { Screen } from '../ui/Screen';
 import { SectionCard } from '../ui/SectionCard';
 import { QueueCard } from './QueueCard';
 
-/** Shared by the admin and barber queue tabs. */
+/**
+ * Shared by the admin and barber queue tabs. The admin/owner manages the
+ * queue (add, call, start, complete + payment, cancel). Barbers get a
+ * read-only view of their waiting customers: no add, no status changes.
+ */
 export function QueueBoard() {
   const { services, barbers, settings } = useAppData();
   const { user } = useAuth();
   const isBarberPortal = user?.role === 'BARBER';
+  const readOnly = isBarberPortal;
   const { queue, loading, busyId, refresh, add, setStatus } = useQueue(
     services,
     isBarberPortal ? user?.id : undefined
@@ -251,18 +256,24 @@ export function QueueBoard() {
         title="Now waiting"
         subtitle={`${activeQueue.length} customer${activeQueue.length === 1 ? '' : 's'} in line`}
         right={
-          <Button mode="contained" icon="account-plus" compact onPress={() => setVisible(true)}>
-            Add
-          </Button>
+          readOnly ? undefined : (
+            <Button mode="contained" icon="account-plus" compact onPress={() => setVisible(true)}>
+              Add
+            </Button>
+          )
         }
       >
         {activeQueue.length === 0 ? (
           <EmptyState
             icon="🪑"
             title="No customers waiting"
-            message="Walk-ins you add will show up here in order of arrival."
-            actionLabel="Add customer"
-            onAction={() => setVisible(true)}
+            message={
+              readOnly
+                ? 'Customers assigned to you will show up here in order of arrival.'
+                : 'Walk-ins you add will show up here in order of arrival.'
+            }
+            actionLabel={readOnly ? undefined : 'Add customer'}
+            onAction={readOnly ? undefined : () => setVisible(true)}
           />
         ) : (
           <View style={styles.list}>
@@ -271,6 +282,7 @@ export function QueueBoard() {
                 key={entry.id}
                 entry={entry}
                 position={index + 1}
+                readOnly={readOnly}
                 busy={busyId === entry.id}
                 onStatusChange={(status) => setStatus(entry.id, status)}
                 onComplete={() => openPayment(entry)}
@@ -291,6 +303,7 @@ export function QueueBoard() {
         </SectionCard>
       )}
 
+      {!readOnly && (
       <Portal>
         <Dialog visible={visible} onDismiss={() => setVisible(false)}>
           <Dialog.Title>Add walk-in customer</Dialog.Title>
@@ -454,6 +467,7 @@ export function QueueBoard() {
           </Dialog.Actions>
         </Dialog>
       </Portal>
+      )}
 
       <Snackbar visible={!!toast} onDismiss={() => setToast(null)} duration={3000}>
         {toast ?? ''}

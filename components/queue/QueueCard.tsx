@@ -13,8 +13,11 @@ import { StatusBadge } from '../ui/StatusBadge';
 interface QueueCardProps {
   entry: QueueEntry;
   position: number;
-  busy: boolean;
-  onStatusChange: (status: QueueStatus) => void;
+  busy?: boolean;
+  /** Required unless readOnly. */
+  onStatusChange?: (status: QueueStatus) => void;
+  /** View-only (barbers): hides every action button. */
+  readOnly?: boolean;
   /**
    * Opens the payment dialog instead of silently closing the entry.
    * When omitted (read-only previews such as the dashboard) the Complete
@@ -29,7 +32,8 @@ function waitLabel(entry: QueueEntry): string {
   return ' - Est. wait: ' + entry.estimatedWaitTime + ' min';
 }
 
-export function QueueCard({ entry, position, busy, onStatusChange, onComplete }: QueueCardProps) {
+export function QueueCard({ entry, position, busy = false, onStatusChange, onComplete, readOnly }: QueueCardProps) {
+  const change = (status: QueueStatus) => onStatusChange?.(status);
   return (
     <View style={styles.card}>
       <View style={styles.header}>
@@ -52,14 +56,15 @@ export function QueueCard({ entry, position, busy, onStatusChange, onComplete }:
         <StatusBadge status={entry.status} />
       </View>
 
+      {!readOnly && (
       <View style={styles.actions}>
         {entry.status === 'WAITING' && (
-          <Button mode="contained-tonal" compact disabled={busy} onPress={() => onStatusChange('CALLED')}>
+          <Button mode="contained-tonal" compact disabled={busy} onPress={() => change('CALLED')}>
             Call
           </Button>
         )}
         {(entry.status === 'WAITING' || entry.status === 'CALLED') && (
-          <Button mode="contained" compact disabled={busy} onPress={() => onStatusChange('IN_SERVICE')}>
+          <Button mode="contained" compact disabled={busy} onPress={() => change('IN_SERVICE')}>
             Start
           </Button>
         )}
@@ -73,11 +78,12 @@ export function QueueCard({ entry, position, busy, onStatusChange, onComplete }:
           compact
           textColor={Colors.danger}
           disabled={busy}
-          onPress={() => onStatusChange('CANCELLED')}
+          onPress={() => change('CANCELLED')}
         >
           Cancel
         </Button>
       </View>
+      )}
     </View>
   );
 }

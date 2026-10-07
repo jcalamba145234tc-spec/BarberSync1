@@ -1,0 +1,186 @@
+diff --git a/app/(barber)/dashboard.tsx b/app/(barber)/dashboard.tsx
+index 5a785f2..b166790 100644
+--- a/app/(barber)/dashboard.tsx
++++ b/app/(barber)/dashboard.tsx
+@@ -34,7 +34,7 @@ export default function BarberDashboard() {
+     barberId: user?.id,
+   });
+   // Shared with the queue tab and the admin dashboard.
+-  const { activeQueue, busyId, setStatus } = useQueue(services, user?.id);
++  const { activeQueue } = useQueue(services, user?.id);
+ 
+   useFocusEffect(
+     React.useCallback(() => {
+@@ -76,8 +76,7 @@ export default function BarberDashboard() {
+                 key={entry.id}
+                 entry={entry}
+                 position={index + 1}
+-                busy={busyId === entry.id}
+-                onStatusChange={(status) => setStatus(entry.id, status)}
++                readOnly
+               />
+             ))
+           )}
+diff --git a/components/queue/QueueBoard.tsx b/components/queue/QueueBoard.tsx
+index 06feddf..845d931 100644
+--- a/components/queue/QueueBoard.tsx
++++ b/components/queue/QueueBoard.tsx
+@@ -25,11 +25,16 @@ import { Screen } from '../ui/Screen';
+ import { SectionCard } from '../ui/SectionCard';
+ import { QueueCard } from './QueueCard';
+ 
+-/** Shared by the admin and barber queue tabs. */
++/**
++ * Shared by the admin and barber queue tabs. The admin/owner manages the
++ * queue (add, call, start, complete + payment, cancel). Barbers get a
++ * read-only view of their waiting customers: no add, no status changes.
++ */
+ export function QueueBoard() {
+   const { services, barbers, settings } = useAppData();
+   const { user } = useAuth();
+   const isBarberPortal = user?.role === 'BARBER';
++  const readOnly = isBarberPortal;
+   const { queue, loading, busyId, refresh, add, setStatus } = useQueue(
+     services,
+     isBarberPortal ? user?.id : undefined
+@@ -251,18 +256,24 @@ export function QueueBoard() {
+         title="Now waiting"
+         subtitle={`${activeQueue.length} customer${activeQueue.length === 1 ? '' : 's'} in line`}
+         right={
+-          <Button mode="contained" icon="account-plus" compact onPress={() => setVisible(true)}>
+-            Add
+-          </Button>
++          readOnly ? undefined : (
++            <Button mode="contained" icon="account-plus" compact onPress={() => setVisible(true)}>
++              Add
++            </Button>
++          )
+         }
+       >
+         {activeQueue.length === 0 ? (
+           <EmptyState
+             icon="🪑"
+             title="No customers waiting"
+-            message="Walk-ins you add will show up here in order of arrival."
+-            actionLabel="Add customer"
+-            onAction={() => setVisible(true)}
++            message={
++              readOnly
++                ? 'Customers assigned to you will show up here in order of arrival.'
++                : 'Walk-ins you add will show up here in order of arrival.'
++            }
++            actionLabel={readOnly ? undefined : 'Add customer'}
++            onAction={readOnly ? undefined : () => setVisible(true)}
+           />
+         ) : (
+           <View style={styles.list}>
+@@ -271,6 +282,7 @@ export function QueueBoard() {
+                 key={entry.id}
+                 entry={entry}
+                 position={index + 1}
++                readOnly={readOnly}
+                 busy={busyId === entry.id}
+                 onStatusChange={(status) => setStatus(entry.id, status)}
+                 onComplete={() => openPayment(entry)}
+@@ -291,6 +303,7 @@ export function QueueBoard() {
+         </SectionCard>
+       )}
+ 
++      {!readOnly && (
+       <Portal>
+         <Dialog visible={visible} onDismiss={() => setVisible(false)}>
+           <Dialog.Title>Add walk-in customer</Dialog.Title>
+@@ -454,6 +467,7 @@ export function QueueBoard() {
+           </Dialog.Actions>
+         </Dialog>
+       </Portal>
++      )}
+ 
+       <Snackbar visible={!!toast} onDismiss={() => setToast(null)} duration={3000}>
+         {toast ?? ''}
+diff --git a/components/queue/QueueCard.tsx b/components/queue/QueueCard.tsx
+index d306e9c..d62c962 100644
+--- a/components/queue/QueueCard.tsx
++++ b/components/queue/QueueCard.tsx
+@@ -13,8 +13,11 @@ import { StatusBadge } from '../ui/StatusBadge';
+ interface QueueCardProps {
+   entry: QueueEntry;
+   position: number;
+-  busy: boolean;
+-  onStatusChange: (status: QueueStatus) => void;
++  busy?: boolean;
++  /** Required unless readOnly. */
++  onStatusChange?: (status: QueueStatus) => void;
++  /** View-only (barbers): hides every action button. */
++  readOnly?: boolean;
+   /**
+    * Opens the payment dialog instead of silently closing the entry.
+    * When omitted (read-only previews such as the dashboard) the Complete
+@@ -29,7 +32,8 @@ function waitLabel(entry: QueueEntry): string {
+   return ' - Est. wait: ' + entry.estimatedWaitTime + ' min';
+ }
+ 
+-export function QueueCard({ entry, position, busy, onStatusChange, onComplete }: QueueCardProps) {
++export function QueueCard({ entry, position, busy = false, onStatusChange, onComplete, readOnly }: QueueCardProps) {
++  const change = (status: QueueStatus) => onStatusChange?.(status);
+   return (
+     <View style={styles.card}>
+       <View style={styles.header}>
+@@ -52,14 +56,15 @@ export function QueueCard({ entry, position, busy, onStatusChange, onComplete }:
+         <StatusBadge status={entry.status} />
+       </View>
+ 
++      {!readOnly && (
+       <View style={styles.actions}>
+         {entry.status === 'WAITING' && (
+-          <Button mode="contained-tonal" compact disabled={busy} onPress={() => onStatusChange('CALLED')}>
++          <Button mode="contained-tonal" compact disabled={busy} onPress={() => change('CALLED')}>
+             Call
+           </Button>
+         )}
+         {(entry.status === 'WAITING' || entry.status === 'CALLED') && (
+-          <Button mode="contained" compact disabled={busy} onPress={() => onStatusChange('IN_SERVICE')}>
++          <Button mode="contained" compact disabled={busy} onPress={() => change('IN_SERVICE')}>
+             Start
+           </Button>
+         )}
+@@ -73,11 +78,12 @@ export function QueueCard({ entry, position, busy, onStatusChange, onComplete }:
+           compact
+           textColor={Colors.danger}
+           disabled={busy}
+-          onPress={() => onStatusChange('CANCELLED')}
++          onPress={() => change('CANCELLED')}
+         >
+           Cancel
+         </Button>
+       </View>
++      )}
+     </View>
+   );
+ }
+diff --git a/firestore.rules b/firestore.rules
+index 883c9b1..44cedb9 100644
+--- a/firestore.rules
++++ b/firestore.rules
+@@ -86,18 +86,10 @@ service cloud.firestore {
+ 
+     // ---------- queue ----------
+     match /queue/{queueId} {
+-      // Fields a barber is allowed to touch on an existing entry.
+-      function onlyStatusFieldsChanged() {
+-        return request.resource.data.diff(resource.data).affectedKeys()
+-          .hasOnly(['status', 'startedAt', 'completedAt', 'estimatedWaitTime']);
+-      }
+-
++      // Barbers can only view the queue. The admin/owner adds customers and
++      // moves them through the line.
+       allow read: if isAdmin() || isBarber();
+-      allow create: if isAdmin() || isBarber();
+-      // A barber can advance an entry but cannot reassign it to someone else
+-      // or rewrite the customer, service or arrival time.
+-      allow update: if isAdmin() || (isBarber() && onlyStatusFieldsChanged());
+-      allow delete: if isAdmin();
++      allow create, update, delete: if isAdmin();
+     }
+ 
+     // ---------- expenses (admin only) ----------

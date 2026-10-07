@@ -34,7 +34,7 @@ export default function BarberDashboard() {
     barberId: user?.id,
   });
   // Shared with the queue tab and the admin dashboard.
-  const { activeQueue, busyId, setStatus } = useQueue(services, user?.id);
+  const { activeQueue } = useQueue(services, user?.id);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -76,8 +76,7 @@ export default function BarberDashboard() {
                 key={entry.id}
                 entry={entry}
                 position={index + 1}
-                busy={busyId === entry.id}
-                onStatusChange={(status) => setStatus(entry.id, status)}
+                readOnly
               />
             ))
           )}

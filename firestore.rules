@@ -86,18 +86,10 @@ service cloud.firestore {
 
     // ---------- queue ----------
     match /queue/{queueId} {
-      // Fields a barber is allowed to touch on an existing entry.
-      function onlyStatusFieldsChanged() {
-        return request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'startedAt', 'completedAt', 'estimatedWaitTime']);
-      }
-
+      // Barbers can only view the queue. The admin/owner adds customers and
+      // moves them through the line.
       allow read: if isAdmin() || isBarber();
-      allow create: if isAdmin() || isBarber();
-      // A barber can advance an entry but cannot reassign it to someone else
-      // or rewrite the customer, service or arrival time.
-      allow update: if isAdmin() || (isBarber() && onlyStatusFieldsChanged());
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
     // ---------- expenses (admin only) ----------
