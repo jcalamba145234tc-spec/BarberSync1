@@ -19,6 +19,8 @@ export interface DailyAttendance {
   records: BarberAttendanceRecord[];
   updatedAt: string;
   savedBy?: string;
+  /** True while the day has never been saved (only default "Present" placeholders). Never stored. */
+  draft?: boolean;
 }
 
 export interface AttendanceSummary {

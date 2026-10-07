@@ -5,7 +5,7 @@
  * attendance/ collection, or every read/write here gets permission-denied.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import {
   Avatar,
   Button,
@@ -32,13 +32,28 @@ import {
   saveDailyAttendance,
 } from '../../services/attendanceService';
 import { AttendanceStatus, BarberAttendanceRecord, DailyAttendance } from '../../types/attendance';
-import { formatDate } from '../../utils/dateUtils';
+import { formatDate, parseInputDate } from '../../utils/dateUtils';
 
 function toDateString(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** Last 7 days (oldest first, today last) for the quick day picker. */
+function recentDays(): { dateStr: string; label: string }[] {
+  const days: { dateStr: string; label: string }[] = [];
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const d = new Date();
+    d.setDate(d.getDate() - offset);
+    const label =
+      offset === 0 ? 'Today' : offset === 1 ? 'Yesterday' : `${WEEKDAYS[d.getDay()]} ${d.getDate()}`;
+    days.push({ dateStr: toDateString(d), label });
+  }
+  return days;
 }
 
 const STATUS_CONFIG: Record<
@@ -64,6 +79,15 @@ export default function AttendanceScreen() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
+  const [dateText, setDateText] = useState('');
+  const [dateError, setDateError] = useState<string | null>(null);
+  const quickDays = useMemo(() => recentDays(), [dateStr]);
+
+  // Keep the "Go to date" box in step with the arrows / chips.
+  useEffect(() => {
+    setDateText(dateStr);
+    setDateError(null);
+  }, [dateStr]);
 
   const isAdmin = user?.role === 'ADMIN';
 
@@ -93,6 +117,24 @@ export default function AttendanceScreen() {
 
   const jumpToToday = () => {
     setCurrentDate(new Date());
+  };
+
+  // Jump straight to a day picked from the quick strip.
+  const goToDay = (value: string) => {
+    const parsed = parseInputDate(value);
+    if (parsed) setCurrentDate(parsed);
+  };
+
+  // Jump to a typed date (YYYY-MM-DD).
+  const handleGoToDate = () => {
+    const parsed = parseInputDate(dateText);
+    // Reject impossible dates like 2026-02-31 that JS would silently roll over.
+    if (!parsed || toDateString(parsed) !== dateText.trim()) {
+      setDateError('Use the format YYYY-MM-DD, e.g. 2026-10-07.');
+      return;
+    }
+    setDateError(null);
+    setCurrentDate(parsed);
   };
 
   // Update status for a barber
@@ -133,6 +175,7 @@ export default function AttendanceScreen() {
     setSaving(true);
     try {
       await saveDailyAttendance(attendance);
+      setAttendance({ ...attendance, draft: false });
       setMessage(`Attendance saved for ${formatDate(attendance.date)}.`);
     } catch {
       setMessage('Failed to save attendance.');
@@ -174,6 +217,11 @@ export default function AttendanceScreen() {
                   </Chip>
                 )}
               </View>
+              {attendance?.draft && (
+                <Text variant="labelSmall" style={styles.draftNote}>
+                  Not saved yet
+                </Text>
+              )}
               {!isToday && (
                 <Button compact onPress={jumpToToday} style={styles.jumpBtn}>
                   Return to Today
@@ -187,6 +235,47 @@ export default function AttendanceScreen() {
               onPress={() => changeDate(1)}
               style={styles.dateNavBtn}
             />
+          </Card.Content>
+        </Card>
+
+        {/* Find a specific day: last 7 days + any typed date */}
+        <Card style={styles.filterCard}>
+          <Card.Content style={styles.filterContent}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayStrip}>
+              {quickDays.map((day) => (
+                <Chip
+                  key={day.dateStr}
+                  selected={day.dateStr === dateStr}
+                  showSelectedCheck={false}
+                  onPress={() => goToDay(day.dateStr)}
+                >
+                  {day.label}
+                </Chip>
+              ))}
+            </ScrollView>
+
+            <View style={styles.goRow}>
+              <TextInput
+                mode="outlined"
+                dense
+                label="Go to date (YYYY-MM-DD)"
+                value={dateText}
+                onChangeText={(text) => {
+                  setDateText(text);
+                  setDateError(null);
+                }}
+                onSubmitEditing={handleGoToDate}
+                autoCapitalize="none"
+                keyboardType="numbers-and-punctuation"
+                style={styles.goInput}
+              />
+              <Button mode="contained" compact onPress={handleGoToDate}>
+                Go
+              </Button>
+            </View>
+            <HelperText type="error" visible={!!dateError}>
+              {dateError}
+            </HelperText>
           </Card.Content>
         </Card>
 
@@ -399,6 +488,35 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 13,
     fontWeight: '700',
+  },
+  draftNote: {
+    color: Colors.warning,
+    fontWeight: '700',
+  },
+  filterCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: 10,
+    elevation: 1,
+  },
+  filterContent: {
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    gap: 8,
+  },
+  dayStrip: {
+    gap: 8,
+  },
+  goRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  goInput: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
   },
   jumpBtn: {
     marginTop: 2,

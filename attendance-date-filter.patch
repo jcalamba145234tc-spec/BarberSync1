@@ -1,0 +1,233 @@
+diff --git a/app/(admin)/attendance.tsx b/app/(admin)/attendance.tsx
+index d620d39..d5eb2a5 100644
+--- a/app/(admin)/attendance.tsx
++++ b/app/(admin)/attendance.tsx
+@@ -5,7 +5,7 @@
+  * attendance/ collection, or every read/write here gets permission-denied.
+  */
+ import React, { useCallback, useEffect, useMemo, useState } from 'react';
+-import { StyleSheet, View } from 'react-native';
++import { ScrollView, StyleSheet, View } from 'react-native';
+ import {
+   Avatar,
+   Button,
+@@ -32,7 +32,7 @@ import {
+   saveDailyAttendance,
+ } from '../../services/attendanceService';
+ import { AttendanceStatus, BarberAttendanceRecord, DailyAttendance } from '../../types/attendance';
+-import { formatDate } from '../../utils/dateUtils';
++import { formatDate, parseInputDate } from '../../utils/dateUtils';
+ 
+ function toDateString(date: Date): string {
+   const y = date.getFullYear();
+@@ -41,6 +41,21 @@ function toDateString(date: Date): string {
+   return `${y}-${m}-${d}`;
+ }
+ 
++const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
++
++/** Last 7 days (oldest first, today last) for the quick day picker. */
++function recentDays(): { dateStr: string; label: string }[] {
++  const days: { dateStr: string; label: string }[] = [];
++  for (let offset = 6; offset >= 0; offset -= 1) {
++    const d = new Date();
++    d.setDate(d.getDate() - offset);
++    const label =
++      offset === 0 ? 'Today' : offset === 1 ? 'Yesterday' : `${WEEKDAYS[d.getDay()]} ${d.getDate()}`;
++    days.push({ dateStr: toDateString(d), label });
++  }
++  return days;
++}
++
+ const STATUS_CONFIG: Record<
+   AttendanceStatus,
+   { label: string; color: string; bgColor: string }
+@@ -64,6 +79,15 @@ export default function AttendanceScreen() {
+   const [saving, setSaving] = useState(false);
+   const [message, setMessage] = useState<string | null>(null);
+   const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
++  const [dateText, setDateText] = useState('');
++  const [dateError, setDateError] = useState<string | null>(null);
++  const quickDays = useMemo(() => recentDays(), [dateStr]);
++
++  // Keep the "Go to date" box in step with the arrows / chips.
++  useEffect(() => {
++    setDateText(dateStr);
++    setDateError(null);
++  }, [dateStr]);
+ 
+   const isAdmin = user?.role === 'ADMIN';
+ 
+@@ -95,6 +119,24 @@ export default function AttendanceScreen() {
+     setCurrentDate(new Date());
+   };
+ 
++  // Jump straight to a day picked from the quick strip.
++  const goToDay = (value: string) => {
++    const parsed = parseInputDate(value);
++    if (parsed) setCurrentDate(parsed);
++  };
++
++  // Jump to a typed date (YYYY-MM-DD).
++  const handleGoToDate = () => {
++    const parsed = parseInputDate(dateText);
++    // Reject impossible dates like 2026-02-31 that JS would silently roll over.
++    if (!parsed || toDateString(parsed) !== dateText.trim()) {
++      setDateError('Use the format YYYY-MM-DD, e.g. 2026-10-07.');
++      return;
++    }
++    setDateError(null);
++    setCurrentDate(parsed);
++  };
++
+   // Update status for a barber
+   const handleStatusChange = (barberId: string, status: AttendanceStatus) => {
+     if (!attendance) return;
+@@ -133,6 +175,7 @@ export default function AttendanceScreen() {
+     setSaving(true);
+     try {
+       await saveDailyAttendance(attendance);
++      setAttendance({ ...attendance, draft: false });
+       setMessage(`Attendance saved for ${formatDate(attendance.date)}.`);
+     } catch {
+       setMessage('Failed to save attendance.');
+@@ -174,6 +217,11 @@ export default function AttendanceScreen() {
+                   </Chip>
+                 )}
+               </View>
++              {attendance?.draft && (
++                <Text variant="labelSmall" style={styles.draftNote}>
++                  Not saved yet
++                </Text>
++              )}
+               {!isToday && (
+                 <Button compact onPress={jumpToToday} style={styles.jumpBtn}>
+                   Return to Today
+@@ -190,6 +238,47 @@ export default function AttendanceScreen() {
+           </Card.Content>
+         </Card>
+ 
++        {/* Find a specific day: last 7 days + any typed date */}
++        <Card style={styles.filterCard}>
++          <Card.Content style={styles.filterContent}>
++            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayStrip}>
++              {quickDays.map((day) => (
++                <Chip
++                  key={day.dateStr}
++                  selected={day.dateStr === dateStr}
++                  showSelectedCheck={false}
++                  onPress={() => goToDay(day.dateStr)}
++                >
++                  {day.label}
++                </Chip>
++              ))}
++            </ScrollView>
++
++            <View style={styles.goRow}>
++              <TextInput
++                mode="outlined"
++                dense
++                label="Go to date (YYYY-MM-DD)"
++                value={dateText}
++                onChangeText={(text) => {
++                  setDateText(text);
++                  setDateError(null);
++                }}
++                onSubmitEditing={handleGoToDate}
++                autoCapitalize="none"
++                keyboardType="numbers-and-punctuation"
++                style={styles.goInput}
++              />
++              <Button mode="contained" compact onPress={handleGoToDate}>
++                Go
++              </Button>
++            </View>
++            <HelperText type="error" visible={!!dateError}>
++              {dateError}
++            </HelperText>
++          </Card.Content>
++        </Card>
++
+         {/* Attendance Summary Stats */}
+         <View style={styles.summaryRow}>
+           <View style={styles.summaryItem}>
+@@ -400,6 +489,35 @@ const styles = StyleSheet.create({
+     lineHeight: 13,
+     fontWeight: '700',
+   },
++  draftNote: {
++    color: Colors.warning,
++    fontWeight: '700',
++  },
++  filterCard: {
++    backgroundColor: '#FFFFFF',
++    borderRadius: 12,
++    borderWidth: 1,
++    borderColor: Colors.border,
++    marginBottom: 10,
++    elevation: 1,
++  },
++  filterContent: {
++    paddingVertical: 10,
++    paddingHorizontal: 10,
++    gap: 8,
++  },
++  dayStrip: {
++    gap: 8,
++  },
++  goRow: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 8,
++  },
++  goInput: {
++    flex: 1,
++    backgroundColor: '#FFFFFF',
++  },
+   jumpBtn: {
+     marginTop: 2,
+   },
+diff --git a/services/attendanceService.ts b/services/attendanceService.ts
+index be9e08c..b459b5b 100644
+--- a/services/attendanceService.ts
++++ b/services/attendanceService.ts
+@@ -91,12 +91,11 @@ export async function getDailyAttendance(
+     date: dateStr,
+     records: defaultRecords,
+     updatedAt: new Date().toISOString(),
++    // Placeholder only: nothing is cached or stored until the admin saves, so
++    // browsing past dates never creates fake "Present" records.
++    draft: true,
+   };
+ 
+-  const map = await readAttendanceMap();
+-  map[dateStr] = initial;
+-  await writeAttendanceMap(map);
+-
+   return initial;
+ }
+ 
+@@ -104,8 +103,9 @@ export async function getDailyAttendance(
+  * Saves attendance to local cache and Firestore.
+  */
+ export async function saveDailyAttendance(attendance: DailyAttendance): Promise<void> {
++  const { draft: _draft, ...rest } = attendance;
+   const updated: DailyAttendance = {
+-    ...attendance,
++    ...rest,
+     updatedAt: new Date().toISOString(),
+   };
+ 
+diff --git a/types/attendance.ts b/types/attendance.ts
+index afd9f0d..d7b3c8b 100644
+--- a/types/attendance.ts
++++ b/types/attendance.ts
+@@ -19,6 +19,8 @@ export interface DailyAttendance {
+   records: BarberAttendanceRecord[];
+   updatedAt: string;
+   savedBy?: string;
++  /** True while the day has never been saved (only default "Present" placeholders). Never stored. */
++  draft?: boolean;
+ }
+ 
+ export interface AttendanceSummary {

@@ -91,11 +91,10 @@ export async function getDailyAttendance(
     date: dateStr,
     records: defaultRecords,
     updatedAt: new Date().toISOString(),
+    // Placeholder only: nothing is cached or stored until the admin saves, so
+    // browsing past dates never creates fake "Present" records.
+    draft: true,
   };
-
-  const map = await readAttendanceMap();
-  map[dateStr] = initial;
-  await writeAttendanceMap(map);
 
   return initial;
 }
@@ -104,8 +103,9 @@ export async function getDailyAttendance(
  * Saves attendance to local cache and Firestore.
  */
 export async function saveDailyAttendance(attendance: DailyAttendance): Promise<void> {
+  const { draft: _draft, ...rest } = attendance;
   const updated: DailyAttendance = {
-    ...attendance,
+    ...rest,
     updatedAt: new Date().toISOString(),
   };
 
