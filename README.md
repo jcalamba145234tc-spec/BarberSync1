@@ -144,8 +144,8 @@ app/                      screens (Expo Router)
   (auth)/login.tsx
   (admin)/                dashboard, transactions, transaction-entry, revenue-split,
                           reports, queue, services, expenses, barbers, settings
-  (barber)/               dashboard, transaction-entry, transactions, queue,
-                          earnings, profile
+  (barber)/               dashboard, queue, earnings, profile
+                          (read-only: barbers do not log services)
 components/
   ui/                     Screen, SectionCard, StatCard, StatusBadge, EmptyState,
                           LoadingState, ConnectionIndicator, AppSnackbar, RoleGuard

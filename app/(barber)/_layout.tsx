@@ -1,6 +1,6 @@
 /**
- * Tab layout for barber-only screens (Dashboard, Queue, Transactions,
- * Earnings, Profile), wrapped in RoleGuard so an admin account routes
+ * Tab layout for barber-only screens (Dashboard, Queue, Earnings,
+ * Profile), wrapped in RoleGuard so an admin account routes
  * elsewhere and a signed-out user can't reach these tabs at all.
  */
 import React from 'react';
@@ -8,7 +8,6 @@ import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors } from '../../constants/colors';
 import { ConnectionIndicator } from '../../components/ui/ConnectionIndicator';
-import { HeaderBackButton } from '../../components/ui/HeaderBackButton';
 import { RoleGuard } from '../../components/ui/RoleGuard';
 
 function icon(name: keyof typeof MaterialCommunityIcons.glyphMap) {
@@ -17,7 +16,11 @@ function icon(name: keyof typeof MaterialCommunityIcons.glyphMap) {
   );
 }
 
-/** Barber navigation: no reports, expenses, services or shop-wide financials. */
+/**
+ * Barber navigation is read-only for money: no logging of services (the
+ * admin/owner does that at the counter), no reports, expenses or shop-wide
+ * financials.
+ */
 export default function BarberLayout() {
   return (
     <RoleGuard role="BARBER">
@@ -37,14 +40,6 @@ export default function BarberLayout() {
           options={{
             title: 'Dashboard',
             tabBarIcon: icon('view-dashboard-outline'),
-          }}
-        />
-
-        <Tabs.Screen
-          name="transactions"
-          options={{
-            title: 'My Services',
-            tabBarIcon: icon('content-cut'),
           }}
         />
 
@@ -69,15 +64,6 @@ export default function BarberLayout() {
           options={{
             title: 'Profile',
             tabBarIcon: icon('account-circle-outline'),
-          }}
-        />
-
-        <Tabs.Screen
-          name="transaction-entry"
-          options={{
-            title: 'Log Service',
-            href: null,
-            headerLeft: () => <HeaderBackButton />,
           }}
         />
       </Tabs>

@@ -76,7 +76,7 @@ export default function BarberEarnings() {
         subtitle={`Your share is ${Math.round(settings.barberPercentage * 100)}% of every service.`}
       >
         {byDay.length === 0 ? (
-          <EmptyState icon="💵" title="No earnings in this period" message="Log a service to start earning." />
+          <EmptyState icon="💵" title="No earnings in this period" message="Services recorded by the owner will show up here." />
         ) : (
           byDay.map(([day, value]) => (
             <View key={day} style={styles.row}>

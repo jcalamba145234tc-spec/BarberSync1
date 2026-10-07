@@ -1,0 +1,148 @@
+diff --git a/hooks/useQueue.ts b/hooks/useQueue.ts
+index db6bb32..2339bc8 100644
+--- a/hooks/useQueue.ts
++++ b/hooks/useQueue.ts
+@@ -2,12 +2,18 @@
+  * Loads and manages the walk-in queue for a screen - optionally scoped to one
+  * barber's own entries. Wraps services/queueService.ts and exposes simple
+  * loading/busy state for the UI.
++ *
++ * Unlike the rest of the app, this subscribes to a LIVE Firestore listener
++ * while the screen is focused, so a walk-in added from a different device
++ * appears here without needing a manual refresh. It falls back to a one-time
++ * fetch for offline / local-demo-mode, since a live listener needs a real
++ * Firestore connection to fire at all.
+  */
+ import { useCallback, useMemo, useState } from 'react';
+ import { useFocusEffect } from 'expo-router';
+ import { QueueEntry, QueueInput, QueueStatus } from '../types/queue';
+ import { BarberService } from '../types/service';
+-import { addToQueue, getQueue, isActive, updateQueueStatus } from '../services/queueService';
++import { addToQueue, getQueue, isActive, subscribeToQueue, updateQueueStatus } from '../services/queueService';
+ 
+ /** Pass a barber id to expose only entries assigned to that barber. */
+ export function useQueue(services: BarberService[], assignedBarberId?: string) {
+@@ -33,8 +39,13 @@ export function useQueue(services: BarberService[], assignedBarberId?: string) {
+   useFocusEffect(
+     useCallback(() => {
+       let mounted = true;
++      setLoading(true);
++
++      // Always do one immediate fetch - this is what covers offline mode and
++      // local/demo mode (no real Firestore project configured), and also
++      // gives the screen something to show before the first live snapshot
++      // arrives.
+       (async () => {
+-        setLoading(true);
+         try {
+           const entries = await getQueue(services);
+           if (mounted) setQueue(filterForBarber(entries));
+@@ -42,8 +53,28 @@ export function useQueue(services: BarberService[], assignedBarberId?: string) {
+           if (mounted) setLoading(false);
+         }
+       })();
++
++      // Live updates while this screen is focused - a no-op if Firestore
++      // isn't configured, in which case the one-time fetch above is all
++      // this screen gets, same as every other screen in the app.
++      const unsubscribe = subscribeToQueue(
++        services,
++        (entries) => {
++          if (!mounted) return;
++          setQueue(filterForBarber(entries));
++          setLoading(false);
++        },
++        (error) => {
++          // Listener failed (e.g. permission error, connection dropped) -
++          // the screen keeps showing whatever it last had rather than
++          // clearing to empty.
++          console.warn('[BarberSync] Queue live updates unavailable, staying on last known data.', error);
++        }
++      );
++
+       return () => {
+         mounted = false;
++        unsubscribe();
+       };
+     }, [services, filterForBarber])
+   );
+diff --git a/services/queueService.ts b/services/queueService.ts
+index f8a7b02..259d74a 100644
+--- a/services/queueService.ts
++++ b/services/queueService.ts
+@@ -1,4 +1,4 @@
+-import { collection, doc, getDocs, setDoc } from 'firebase/firestore';
++import { collection, doc, getDocs, onSnapshot, setDoc } from 'firebase/firestore';
+ import { COLLECTIONS, STORAGE_KEYS } from '../constants/config';
+ import { QueueEntry, QueueInput, QueueStatus } from '../types/queue';
+ import { BarberService } from '../types/service';
+@@ -11,9 +11,12 @@ import { enqueueOp } from './pendingOps';
+ /**
+  * QUEUE: READ / WRITE PATTERN
+  * -----------------------------
+- * READS: one-time getDocs(), cached to AsyncStorage on success and read back
+- * from that cache when offline/on error - no live listener, so both the
+- * barber and admin queue screens only update on refetch (e.g. on focus).
++ * READS: this is the one collection in the app with a LIVE Firestore
++ * listener (subscribeToQueue, using onSnapshot) - the walk-in queue is the
++ * one place where seeing another device's change immediately actually
++ * matters. getQueue() still exists as a one-time read for the offline/
++ * local-demo-mode fallback, since a snapshot listener needs a real Firestore
++ * connection to fire at all. Both paths share the same AsyncStorage cache.
+  * WRITES: setDoc(..., { merge: true }) with a device-generated ID, same
+  * idempotent-retry pattern used everywhere else in this app. Barbers may
+  * only change a limited set of fields on an existing entry (see
+@@ -101,6 +104,53 @@ export async function getQueue(services: BarberService[] = []): Promise<QueueEnt
+   return recalculateWaitTimes(todays, services);
+ }
+ 
++/**
++ * Live version of getQueue(). Unlike every other read in this app, the queue
++ * genuinely benefits from real-time updates - a customer walking in should
++ * show up on every barber's screen immediately, not just the next time they
++ * happen to switch tabs. Uses Firestore's onSnapshot() instead of a one-time
++ * getDocs() call.
++ *
++ * Returns an unsubscribe function - call it when the screen unmounts/loses
++ * focus, the same way you would clean up any other subscription.
++ *
++ * Falls back to doing nothing (returns a no-op unsubscribe) when Firestore
++ * isn't configured - the caller should also do one getQueue() call for the
++ * local/demo-mode and offline case, since a snapshot listener alone won't
++ * fire in those situations.
++ */
++export function subscribeToQueue(
++  services: BarberService[],
++  onChange: (entries: QueueEntry[]) => void,
++  onError?: (error: unknown) => void
++): () => void {
++  if (!firestore) return () => {};
++
++  return onSnapshot(
++    collection(firestore, COLLECTIONS.queue),
++    async (snapshot) => {
++      try {
++        const remote = snapshot.docs.map((d) => ({ ...(d.data() as QueueEntry), id: d.id }));
++        const cached = await localQueue();
++        const remoteIds = new Set(remote.map((e) => e.id));
++        // Keep walk-ins that were added offline and have not reached Firestore yet -
++        // a snapshot listener only ever sees what the server already has.
++        const merged = [...remote, ...cached.filter((e) => !remoteIds.has(e.id))];
++        await cache(merged);
++        const todays = merged.filter((e) => isToday(e.arrivalTime));
++        onChange(recalculateWaitTimes(todays, services));
++      } catch (error) {
++        console.warn('[BarberSync] Failed to process a live queue update.', error);
++        onError?.(error);
++      }
++    },
++    (error) => {
++      console.warn('[BarberSync] Queue live listener errored.', error);
++      onError?.(error);
++    }
++  );
++}
++
+ /** Writes remotely, or queues the change so it is never silently lost. */
+ async function pushOrQueueEntry(id: string, changes: Record<string, unknown>): Promise<void> {
+   if (firestore && (await isOnline())) {

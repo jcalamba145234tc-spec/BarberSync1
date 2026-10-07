@@ -1,11 +1,12 @@
 /**
- * Barber home screen: today's personal stats and quick shortcuts (log a
- * sale, view queue).
+ * Barber home screen (read-only): today's commission, the services the
+ * admin/owner logged under this barber, and the live customer queue.
+ * Barbers cannot log services themselves.
  */
 import React, { useMemo } from 'react';
 import { StyleSheet } from 'react-native';
-import { FAB, Text } from 'react-native-paper';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { Text } from 'react-native-paper';
+import { useFocusEffect } from 'expo-router';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { Screen } from '../../components/ui/Screen';
@@ -23,7 +24,6 @@ import { buildRange, formatDate, isWithinRange } from '../../utils/dateUtils';
 
 /** Barbers only ever see their own numbers. */
 export default function BarberDashboard() {
-  const router = useRouter();
   const { user } = useAuth();
   const { services } = useAppData();
   const today = useMemo(() => buildRange('TODAY'), []);
@@ -61,7 +61,7 @@ export default function BarberDashboard() {
         <Text variant="bodySmall" style={styles.muted}>{formatDate(new Date())}</Text>
 
         <StatGrid>
-          <StatCard label="Today's earnings" value={formatCurrency(todayEarnings)} tone="success" />
+          <StatCard label="Today's commission" value={formatCurrency(todayEarnings)} tone="success" />
           <StatCard label="Services today" value={String(todays.length)} />
           <StatCard label="This pay period" value={formatCurrency(periodEarnings)} tone="accent" hint="Month to date" />
           <StatCard label="Customers waiting" value={String(activeQueue.length)} />
@@ -83,29 +83,29 @@ export default function BarberDashboard() {
           )}
         </SectionCard>
 
-        <SectionCard title="My recent services">
+        <SectionCard title="Services today" subtitle="Recorded by the owner at the counter.">
           {todays.length === 0 ? (
             <EmptyState
               icon="✂️"
-              title="No services logged today"
-              message="Log a service as soon as you finish a customer."
-              actionLabel="Log service"
-              onAction={() => router.push('/(barber)/transaction-entry')}
+              title="No services yet today"
+              message="Services show up here once the owner records them."
             />
           ) : (
-            todays.slice(0, 5).map((transaction) => (
-              <TransactionCard key={transaction.id} transaction={transaction} showSplit={false} />
+            todays.map((transaction) => (
+              <TransactionCard
+                key={transaction.id}
+                transaction={transaction}
+                showSplit={false}
+                footer={
+                  <Text variant="bodySmall" style={styles.commission}>
+                    Your commission: {formatCurrency(transaction.barberShare)}
+                  </Text>
+                }
+              />
             ))
           )}
         </SectionCard>
       </Screen>
-
-      <FAB
-        icon="plus"
-        label="Log service"
-        style={styles.fab}
-        onPress={() => router.push('/(barber)/transaction-entry')}
-      />
     </>
   );
 }
@@ -113,5 +113,5 @@ export default function BarberDashboard() {
 const styles = StyleSheet.create({
   greeting: { fontWeight: '800', color: Colors.text },
   muted: { color: Colors.textMuted },
-  fab: { position: 'absolute', right: 16, bottom: 20, backgroundColor: Colors.accent },
+  commission: { color: Colors.success, fontWeight: '700' },
 });

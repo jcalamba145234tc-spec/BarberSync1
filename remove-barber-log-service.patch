@@ -1,0 +1,376 @@
+diff --git a/README.md b/README.md
+index 8947167..22dbc5d 100644
+--- a/README.md
++++ b/README.md
+@@ -144,8 +144,8 @@ app/                      screens (Expo Router)
+   (auth)/login.tsx
+   (admin)/                dashboard, transactions, transaction-entry, revenue-split,
+                           reports, queue, services, expenses, barbers, settings
+-  (barber)/               dashboard, transaction-entry, transactions, queue,
+-                          earnings, profile
++  (barber)/               dashboard, queue, earnings, profile
++                          (read-only: barbers do not log services)
+ components/
+   ui/                     Screen, SectionCard, StatCard, StatusBadge, EmptyState,
+                           LoadingState, ConnectionIndicator, AppSnackbar, RoleGuard
+diff --git a/app/(barber)/_layout.tsx b/app/(barber)/_layout.tsx
+index fbd165a..fb54073 100644
+--- a/app/(barber)/_layout.tsx
++++ b/app/(barber)/_layout.tsx
+@@ -1,6 +1,6 @@
+ /**
+- * Tab layout for barber-only screens (Dashboard, Queue, Transactions,
+- * Earnings, Profile), wrapped in RoleGuard so an admin account routes
++ * Tab layout for barber-only screens (Dashboard, Queue, Earnings,
++ * Profile), wrapped in RoleGuard so an admin account routes
+  * elsewhere and a signed-out user can't reach these tabs at all.
+  */
+ import React from 'react';
+@@ -8,7 +8,6 @@ import { Tabs } from 'expo-router';
+ import { MaterialCommunityIcons } from '@expo/vector-icons';
+ import { Colors } from '../../constants/colors';
+ import { ConnectionIndicator } from '../../components/ui/ConnectionIndicator';
+-import { HeaderBackButton } from '../../components/ui/HeaderBackButton';
+ import { RoleGuard } from '../../components/ui/RoleGuard';
+ 
+ function icon(name: keyof typeof MaterialCommunityIcons.glyphMap) {
+@@ -17,7 +16,11 @@ function icon(name: keyof typeof MaterialCommunityIcons.glyphMap) {
+   );
+ }
+ 
+-/** Barber navigation: no reports, expenses, services or shop-wide financials. */
++/**
++ * Barber navigation is read-only for money: no logging of services (the
++ * admin/owner does that at the counter), no reports, expenses or shop-wide
++ * financials.
++ */
+ export default function BarberLayout() {
+   return (
+     <RoleGuard role="BARBER">
+@@ -40,14 +43,6 @@ export default function BarberLayout() {
+           }}
+         />
+ 
+-        <Tabs.Screen
+-          name="transactions"
+-          options={{
+-            title: 'My Services',
+-            tabBarIcon: icon('content-cut'),
+-          }}
+-        />
+-
+         <Tabs.Screen
+           name="queue"
+           options={{
+@@ -71,15 +66,6 @@ export default function BarberLayout() {
+             tabBarIcon: icon('account-circle-outline'),
+           }}
+         />
+-
+-        <Tabs.Screen
+-          name="transaction-entry"
+-          options={{
+-            title: 'Log Service',
+-            href: null,
+-            headerLeft: () => <HeaderBackButton />,
+-          }}
+-        />
+       </Tabs>
+     </RoleGuard>
+   );
+diff --git a/app/(barber)/dashboard.tsx b/app/(barber)/dashboard.tsx
+index 7d30bf3..5a785f2 100644
+--- a/app/(barber)/dashboard.tsx
++++ b/app/(barber)/dashboard.tsx
+@@ -1,11 +1,12 @@
+ /**
+- * Barber home screen: today's personal stats and quick shortcuts (log a
+- * sale, view queue).
++ * Barber home screen (read-only): today's commission, the services the
++ * admin/owner logged under this barber, and the live customer queue.
++ * Barbers cannot log services themselves.
+  */
+ import React, { useMemo } from 'react';
+ import { StyleSheet } from 'react-native';
+-import { FAB, Text } from 'react-native-paper';
+-import { useFocusEffect, useRouter } from 'expo-router';
++import { Text } from 'react-native-paper';
++import { useFocusEffect } from 'expo-router';
+ import { EmptyState } from '../../components/ui/EmptyState';
+ import { LoadingState } from '../../components/ui/LoadingState';
+ import { Screen } from '../../components/ui/Screen';
+@@ -23,7 +24,6 @@ import { buildRange, formatDate, isWithinRange } from '../../utils/dateUtils';
+ 
+ /** Barbers only ever see their own numbers. */
+ export default function BarberDashboard() {
+-  const router = useRouter();
+   const { user } = useAuth();
+   const { services } = useAppData();
+   const today = useMemo(() => buildRange('TODAY'), []);
+@@ -61,7 +61,7 @@ export default function BarberDashboard() {
+         <Text variant="bodySmall" style={styles.muted}>{formatDate(new Date())}</Text>
+ 
+         <StatGrid>
+-          <StatCard label="Today's earnings" value={formatCurrency(todayEarnings)} tone="success" />
++          <StatCard label="Today's commission" value={formatCurrency(todayEarnings)} tone="success" />
+           <StatCard label="Services today" value={String(todays.length)} />
+           <StatCard label="This pay period" value={formatCurrency(periodEarnings)} tone="accent" hint="Month to date" />
+           <StatCard label="Customers waiting" value={String(activeQueue.length)} />
+@@ -83,29 +83,29 @@ export default function BarberDashboard() {
+           )}
+         </SectionCard>
+ 
+-        <SectionCard title="My recent services">
++        <SectionCard title="Services today" subtitle="Recorded by the owner at the counter.">
+           {todays.length === 0 ? (
+             <EmptyState
+               icon="✂️"
+-              title="No services logged today"
+-              message="Log a service as soon as you finish a customer."
+-              actionLabel="Log service"
+-              onAction={() => router.push('/(barber)/transaction-entry')}
++              title="No services yet today"
++              message="Services show up here once the owner records them."
+             />
+           ) : (
+-            todays.slice(0, 5).map((transaction) => (
+-              <TransactionCard key={transaction.id} transaction={transaction} showSplit={false} />
++            todays.map((transaction) => (
++              <TransactionCard
++                key={transaction.id}
++                transaction={transaction}
++                showSplit={false}
++                footer={
++                  <Text variant="bodySmall" style={styles.commission}>
++                    Your commission: {formatCurrency(transaction.barberShare)}
++                  </Text>
++                }
++              />
+             ))
+           )}
+         </SectionCard>
+       </Screen>
+-
+-      <FAB
+-        icon="plus"
+-        label="Log service"
+-        style={styles.fab}
+-        onPress={() => router.push('/(barber)/transaction-entry')}
+-      />
+     </>
+   );
+ }
+@@ -113,5 +113,5 @@ export default function BarberDashboard() {
+ const styles = StyleSheet.create({
+   greeting: { fontWeight: '800', color: Colors.text },
+   muted: { color: Colors.textMuted },
+-  fab: { position: 'absolute', right: 16, bottom: 20, backgroundColor: Colors.accent },
++  commission: { color: Colors.success, fontWeight: '700' },
+ });
+diff --git a/app/(barber)/earnings.tsx b/app/(barber)/earnings.tsx
+index ba5afc6..4f259b5 100644
+--- a/app/(barber)/earnings.tsx
++++ b/app/(barber)/earnings.tsx
+@@ -76,7 +76,7 @@ export default function BarberEarnings() {
+         subtitle={`Your share is ${Math.round(settings.barberPercentage * 100)}% of every service.`}
+       >
+         {byDay.length === 0 ? (
+-          <EmptyState icon="💵" title="No earnings in this period" message="Log a service to start earning." />
++          <EmptyState icon="💵" title="No earnings in this period" message="Services recorded by the owner will show up here." />
+         ) : (
+           byDay.map(([day, value]) => (
+             <View key={day} style={styles.row}>
+diff --git a/app/(barber)/transaction-entry.tsx b/app/(barber)/transaction-entry.tsx
+deleted file mode 100644
+index 6707cf2..0000000
+--- a/app/(barber)/transaction-entry.tsx
++++ /dev/null
+@@ -1,32 +0,0 @@
+-/**
+- * Lets a barber log a sale for themselves. The barber field is locked to the
+- * logged-in user (lockBarberToCurrentUser in TransactionEntryForm) - they
+- * cannot log a sale under another barber's name.
+- */
+-import React, { useState } from 'react';
+-import { useRouter } from 'expo-router';
+-import { AppSnackbar } from '../../components/ui/AppSnackbar';
+-import { Screen } from '../../components/ui/Screen';
+-import { TransactionEntryForm } from '../../components/transactions/TransactionEntryForm';
+-import { formatCurrency } from '../../utils/calculations';
+-
+-export default function BarberTransactionEntry() {
+-  const router = useRouter();
+-  const [message, setMessage] = useState<string | null>(null);
+-
+-  return (
+-    <>
+-      <Screen>
+-        {/* The barber picker is locked: staff can only log their own work. */}
+-        <TransactionEntryForm
+-          lockBarberToCurrentUser
+-          onSaved={(transaction) => {
+-            setMessage(`Saved. Your share: ${formatCurrency(transaction.barberShare)}`);
+-            setTimeout(() => router.push('/(barber)/transactions'), 900);
+-          }}
+-        />
+-      </Screen>
+-      <AppSnackbar message={message} onDismiss={() => setMessage(null)} />
+-    </>
+-  );
+-}
+diff --git a/app/(barber)/transactions.tsx b/app/(barber)/transactions.tsx
+deleted file mode 100644
+index bc989a3..0000000
+--- a/app/(barber)/transactions.tsx
++++ /dev/null
+@@ -1,85 +0,0 @@
+-/**
+- * A barber's own transaction history only, scoped by the same
+- * where('barberId','==',uid) filter firestore.rules enforces server-side.
+- */
+-import React, { useMemo } from 'react';
+-import { StyleSheet } from 'react-native';
+-import { Button, Text } from 'react-native-paper';
+-import { useFocusEffect, useRouter } from 'expo-router';
+-import { EmptyState } from '../../components/ui/EmptyState';
+-import { LoadingState } from '../../components/ui/LoadingState';
+-import { Screen } from '../../components/ui/Screen';
+-import { SectionCard } from '../../components/ui/SectionCard';
+-import { TransactionCard } from '../../components/transactions/TransactionCard';
+-import { Colors } from '../../constants/colors';
+-import { useAuth } from '../../hooks/useAuth';
+-import { useTransactions } from '../../hooks/useTransactions';
+-import { formatCurrency, sum } from '../../utils/calculations';
+-import { buildRange } from '../../utils/dateUtils';
+-
+-export default function BarberTransactions() {
+-  const router = useRouter();
+-  const { user } = useAuth();
+-  const month = useMemo(() => buildRange('MONTH'), []);
+-  const { transactions, loading, refresh } = useTransactions({
+-    from: month.from,
+-    to: month.to,
+-    barberId: user?.id,
+-  });
+-
+-  useFocusEffect(React.useCallback(() => { refresh(); }, [refresh]));
+-
+-  const earnings = useMemo(
+-    () => sum(transactions.filter((t) => t.status !== 'CANCELLED').map((t) => t.barberShare)),
+-    [transactions]
+-  );
+-
+-  if (loading && !transactions.length) return <LoadingState message="Loading your services…" />;
+-
+-  return (
+-    <Screen refreshing={loading} onRefresh={refresh}>
+-      <SectionCard
+-        title="My services this month"
+-        subtitle={`${transactions.length} service(s) · ${formatCurrency(earnings)} earned`}
+-        right={
+-          <Button mode="contained" compact icon="plus" onPress={() => router.push('/(barber)/transaction-entry')}>
+-            Log
+-          </Button>
+-        }
+-      >
+-        <Text variant="bodySmall" style={styles.muted}>
+-          You only see the services you recorded.
+-        </Text>
+-      </SectionCard>
+-
+-      {transactions.length === 0 ? (
+-        <EmptyState
+-          icon="🧾"
+-          title="No services yet"
+-          message="Services you log will show up here."
+-          actionLabel="Log service"
+-          onAction={() => router.push('/(barber)/transaction-entry')}
+-        />
+-      ) : (
+-        transactions.map((transaction) => (
+-          <TransactionCard
+-            key={transaction.id}
+-            transaction={transaction}
+-            showSplit={false}
+-            footer={
+-              <Text variant="bodySmall" style={styles.earnings}>
+-                Your share: {formatCurrency(transaction.barberShare)}
+-                {transaction.synced ? '' : ' · not synced'}
+-              </Text>
+-            }
+-          />
+-        ))
+-      )}
+-    </Screen>
+-  );
+-}
+-
+-const styles = StyleSheet.create({
+-  muted: { color: Colors.textMuted },
+-  earnings: { color: Colors.success, fontWeight: '700' },
+-});
+diff --git a/firestore.rules b/firestore.rules
+index f5cfbe5..883c9b1 100644
+--- a/firestore.rules
++++ b/firestore.rules
+@@ -56,28 +56,6 @@ service cloud.firestore {
+         && math.abs(data.shopShare - expectedShop) < 0.01;
+     }
+ 
+-    // The client clock cannot be trusted: a barber could backdate a sale into
+-    // another reporting period. Every write must stamp serverCreatedAt with the
+-    // server's own time, giving an audit field that cannot be faked.
+-    function serverStamped(data) {
+-      return data.serverCreatedAt == request.time;
+-    }
+-
+-    // setDoc(..., { merge: true }) is used for idempotent offline sync. If a
+-    // create reached Firestore but its response was lost, the retry is an
+-    // update. Permit that retry only when the transaction itself is unchanged;
+-    // the server timestamp and local sync marker are the only mutable fields.
+-    function isTransactionSyncRetry() {
+-      return request.resource.data.diff(resource.data).affectedKeys()
+-          .hasOnly(['serverCreatedAt', 'synced'])
+-        && serverStamped(request.resource.data)
+-        && request.resource.data.barberId == request.auth.uid
+-        && request.resource.data.createdBy == request.auth.uid
+-        && validSplit(request.resource.data)
+-        && request.resource.data.gcashVerified == false
+-        && request.resource.data.status != 'CANCELLED';
+-    }
+-
+     // ---------- users ----------
+     match /users/{userId} {
+       // A barber can read their own profile; the admin can read all of them.
+@@ -94,25 +72,15 @@ service cloud.firestore {
+ 
+     // ---------- transactions ----------
+     match /transactions/{transactionId} {
+-      // A barber only ever reads their own transactions. The client must send a
++      // A barber only ever reads their own transactions (read-only). The client must send a
+       // matching where('barberId','==',uid) filter or the query is rejected.
+       allow read: if isAdmin() || (isBarber() && resource.data.barberId == request.auth.uid);
+ 
+-      // A barber can create a transaction for themselves, with a correct split
+-      // and never pre-verified.
+-      allow create: if (isAdmin() && validSplit(request.resource.data)) ||
+-        (isBarber()
+-          && serverStamped(request.resource.data)
+-          && request.resource.data.barberId == request.auth.uid
+-          && request.resource.data.createdBy == request.auth.uid
+-          && validSplit(request.resource.data)
+-          && request.resource.data.gcashVerified == false
+-          && request.resource.data.status != 'CANCELLED');
+-
+-      // A barber may only repeat an unchanged create after an uncertain
+-      // network response. Payment verification, cancellation and other edits
+-      // remain admin-only.
+-      allow update: if isAdmin() || (isBarber() && isTransactionSyncRetry());
++      // Only the admin/owner records services (customer pays at the counter).
++      // Barbers can never create or edit transactions, so they cannot log a
++      // different service to inflate their commission.
++      allow create: if isAdmin() && validSplit(request.resource.data);
++      allow update: if isAdmin();
+       allow delete: if isAdmin();
+     }
+ 
