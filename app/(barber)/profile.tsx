@@ -5,6 +5,7 @@
 import React from 'react';
 import { StyleSheet } from 'react-native';
 import { Button, Text } from 'react-native-paper';
+import { LogoutButton } from '../../components/auth/LogoutButton';
 import { ChangePasswordCard } from '../../components/ui/ChangePasswordCard';
 import { Screen } from '../../components/ui/Screen';
 import { SectionCard } from '../../components/ui/SectionCard';
@@ -13,7 +14,7 @@ import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../hooks/useAuth';
 
 export default function BarberProfile() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { settings, connection, pending, syncNow } = useAppData();
 
   return (
@@ -43,9 +44,7 @@ export default function BarberProfile() {
 
       <ChangePasswordCard />
 
-      <Button mode="outlined" icon="logout" textColor={Colors.danger} onPress={logout} style={styles.logout}>
-        Log out
-      </Button>
+      <LogoutButton style={styles.logout} />
     </Screen>
   );
 }

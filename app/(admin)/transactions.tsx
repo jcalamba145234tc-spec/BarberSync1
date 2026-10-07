@@ -36,6 +36,7 @@ export default function AdminTransactions() {
   const [barberId, setBarberId] = useState<string | null>(null);
   const [pendingOnly, setPendingOnly] = useState(false);
   const [selected, setSelected] = useState<Transaction | null>(null);
+  const [cancelConfirmationVisible, setCancelConfirmationVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -78,8 +79,11 @@ export default function AdminTransactions() {
     try {
       await cancelTransaction(selected.id);
       setMessage('Transaction cancelled.');
+      setCancelConfirmationVisible(false);
       setSelected(null);
       await refresh();
+    } catch {
+      setMessage('Could not cancel the transaction. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -214,11 +218,40 @@ export default function AdminTransactions() {
               </Button>
             )}
             {selected?.status === 'COMPLETED' && (
-              <Button textColor={Colors.danger} disabled={busy} onPress={handleCancel}>
+              <Button
+                textColor={Colors.danger}
+                disabled={busy}
+                onPress={() => setCancelConfirmationVisible(true)}
+              >
                 Cancel transaction
               </Button>
             )}
             <Button onPress={() => setSelected(null)}>Close</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Dialog
+          visible={cancelConfirmationVisible}
+          onDismiss={() => setCancelConfirmationVisible(false)}
+        >
+          <Dialog.Title>Cancel transaction?</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium">
+              Are you sure you want to cancel this transaction? This action cannot be undone.
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button disabled={busy} onPress={() => setCancelConfirmationVisible(false)}>
+              Keep transaction
+            </Button>
+            <Button
+              textColor={Colors.danger}
+              loading={busy}
+              disabled={busy}
+              onPress={handleCancel}
+            >
+              Cancel transaction
+            </Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
@@ -236,4 +269,3 @@ const styles = StyleSheet.create({
   screenshot: { width: '100%', height: 220, borderRadius: 12, resizeMode: 'contain', marginTop: 8 },
   muted: { color: Colors.textMuted },
 });
-

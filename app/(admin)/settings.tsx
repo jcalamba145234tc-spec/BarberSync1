@@ -7,6 +7,7 @@ import { StyleSheet, View } from 'react-native';
 import { Button, Divider, HelperText, Switch, Text, TextInput } from 'react-native-paper';
 import { AppSnackbar } from '../../components/ui/AppSnackbar';
 import { ChangePasswordCard } from '../../components/ui/ChangePasswordCard';
+import { LogoutButton } from '../../components/auth/LogoutButton';
 import { Screen } from '../../components/ui/Screen';
 import { SectionCard } from '../../components/ui/SectionCard';
 import { Colors } from '../../constants/colors';
@@ -20,7 +21,7 @@ import { parseAmount } from '../../utils/validation';
 
 export default function SettingsScreen() {
   const { settings, updateSettings, pending, syncNow, connection } = useAppData();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   const [shopName, setShopName] = useState(settings.shopName);
   const [shopAddress, setShopAddress] = useState(settings.shopAddress);
@@ -178,9 +179,7 @@ export default function SettingsScreen() {
         <SectionCard title="Account">
           <Text variant="bodyMedium">{user?.name}</Text>
           <Text variant="bodySmall" style={styles.muted}>{user?.email} · {user?.role}</Text>
-          <Button mode="outlined" icon="logout" textColor={Colors.danger} onPress={logout} style={styles.logout}>
-            Log out
-          </Button>
+          <LogoutButton style={styles.logout} />
         </SectionCard>
       </Screen>
       <AppSnackbar message={message} onDismiss={() => setMessage(null)} />
