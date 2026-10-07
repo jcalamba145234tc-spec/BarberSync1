@@ -65,7 +65,10 @@ export function buildTransaction(input: TransactionInput, settings: ShopSettings
     resolveSplitPercentage(settings)
   );
   const isGcash = input.paymentMethod === 'GCASH';
-  const status: TransactionStatus = isGcash ? 'PENDING_GCASH' : 'COMPLETED';
+  // Only the admin/owner records sales (at the counter, with the customer's GCash
+  // receipt in front of them), so a GCash payment is verified at entry time.
+  // The reference number stays required as the audit trail.
+  const status: TransactionStatus = 'COMPLETED';
   return {
     id: createLocalId('txn'),
     customerName: input.customerName.trim(),
@@ -81,7 +84,7 @@ export function buildTransaction(input: TransactionInput, settings: ShopSettings
     gcashScreenshotUrl: null,
     gcashScreenshotBase64: isGcash ? input.gcashScreenshotBase64 ?? null : null,
     gcashScreenshotLocalUri: isGcash ? input.gcashScreenshotLocalUri ?? null : null,
-    gcashVerified: false,
+    gcashVerified: isGcash,
     status,
     createdAt: new Date().toISOString(),
     createdBy: input.createdBy,

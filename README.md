@@ -246,7 +246,7 @@ Until then the app uses **local** notifications, which cover every in-app event
 - [ ] Admin login, barber login, invalid login, logout
 - [ ] Barber is redirected away from admin routes
 - [ ] Create a cash transaction → split is correct, dashboard updates
-- [ ] Create a GCash transaction with reference + screenshot → status `PENDING_GCASH`
+- [ ] Create a GCash transaction with reference + screenshot → saved as `COMPLETED` with `gcashVerified: true` (the owner records it at the counter)
 - [ ] Admin verifies the GCash payment → status `COMPLETED`
 - [ ] Queue: add, call, start, complete, cancel; wait times recalculate
 - [ ] Services: add, edit, deactivate; deletion blocked when history exists; minimum price enforced

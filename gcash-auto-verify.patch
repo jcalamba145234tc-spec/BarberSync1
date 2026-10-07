@@ -1,0 +1,89 @@
+diff --git a/README.md b/README.md
+index 22dbc5d..2d426f2 100644
+--- a/README.md
++++ b/README.md
+@@ -246,7 +246,7 @@ Until then the app uses **local** notifications, which cover every in-app event
+ - [ ] Admin login, barber login, invalid login, logout
+ - [ ] Barber is redirected away from admin routes
+ - [ ] Create a cash transaction → split is correct, dashboard updates
+-- [ ] Create a GCash transaction with reference + screenshot → status `PENDING_GCASH`
++- [ ] Create a GCash transaction with reference + screenshot → saved as `COMPLETED` with `gcashVerified: true` (the owner records it at the counter)
+ - [ ] Admin verifies the GCash payment → status `COMPLETED`
+ - [ ] Queue: add, call, start, complete, cancel; wait times recalculate
+ - [ ] Services: add, edit, deactivate; deletion blocked when history exists; minimum price enforced
+diff --git a/components/queue/QueueBoard.tsx b/components/queue/QueueBoard.tsx
+index 845d931..02d5b92 100644
+--- a/components/queue/QueueBoard.tsx
++++ b/components/queue/QueueBoard.tsx
+@@ -12,7 +12,7 @@ import { useAppData } from '../../context/AppDataContext';
+ import { useAuth } from '../../hooks/useAuth';
+ import { useQueue } from '../../hooks/useQueue';
+ import { isActive, recalculateWaitTimes } from '../../services/queueService';
+-import { notifyGcashPending, notifyNewTransaction } from '../../services/notificationService';
++import { notifyNewTransaction } from '../../services/notificationService';
+ import { getGcashScreenshotBase64 } from '../../services/storageService';
+ import { createTransaction } from '../../services/transactionService';
+ import { QueueEntry } from '../../types/queue';
+@@ -232,7 +232,6 @@ export function QueueBoard() {
+         settings
+       );
+       await notifyNewTransaction(transaction);
+-      if (transaction.status === 'PENDING_GCASH') await notifyGcashPending(transaction);
+ 
+       // Only close the queue entry once the sale is safely stored.
+       await setStatus(payEntry.id, 'COMPLETED');
+diff --git a/components/transactions/TransactionEntryForm.tsx b/components/transactions/TransactionEntryForm.tsx
+index 6bf4c25..56eb635 100644
+--- a/components/transactions/TransactionEntryForm.tsx
++++ b/components/transactions/TransactionEntryForm.tsx
+@@ -17,7 +17,7 @@ import { calculateRevenueSplit, formatCurrency } from '../../utils/calculations'
+ import { parseAmount, validateTransaction } from '../../utils/validation';
+ import { createTransaction } from '../../services/transactionService';
+ import { getGcashScreenshotBase64 } from '../../services/storageService';
+-import { notifyGcashPending, notifyNewTransaction } from '../../services/notificationService';
++import { notifyNewTransaction } from '../../services/notificationService';
+ import { SectionCard } from '../ui/SectionCard';
+ 
+ interface TransactionEntryFormProps {
+@@ -144,7 +144,6 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+         settings
+       );
+       await notifyNewTransaction(transaction);
+-      if (transaction.status === 'PENDING_GCASH') await notifyGcashPending(transaction);
+       reset();
+       onSaved(transaction);
+     } catch (error) {
+@@ -236,7 +235,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+             </Button>
+             {!!screenshotUri && <Image source={{ uri: screenshotUri }} style={styles.preview} />}
+             <Text variant="bodySmall" style={styles.muted}>
+-              GCash payments are saved as “Pending GCash” until the owner verifies them.
++              The payment is saved as verified. Keep the reference number for your records; the screenshot is optional.
+             </Text>
+           </View>
+         )}
+diff --git a/services/transactionService.ts b/services/transactionService.ts
+index b1ee5fc..721fe35 100644
+--- a/services/transactionService.ts
++++ b/services/transactionService.ts
+@@ -65,7 +65,10 @@ export function buildTransaction(input: TransactionInput, settings: ShopSettings
+     resolveSplitPercentage(settings)
+   );
+   const isGcash = input.paymentMethod === 'GCASH';
+-  const status: TransactionStatus = isGcash ? 'PENDING_GCASH' : 'COMPLETED';
++  // Only the admin/owner records sales (at the counter, with the customer's GCash
++  // receipt in front of them), so a GCash payment is verified at entry time.
++  // The reference number stays required as the audit trail.
++  const status: TransactionStatus = 'COMPLETED';
+   return {
+     id: createLocalId('txn'),
+     customerName: input.customerName.trim(),
+@@ -81,7 +84,7 @@ export function buildTransaction(input: TransactionInput, settings: ShopSettings
+     gcashScreenshotUrl: null,
+     gcashScreenshotBase64: isGcash ? input.gcashScreenshotBase64 ?? null : null,
+     gcashScreenshotLocalUri: isGcash ? input.gcashScreenshotLocalUri ?? null : null,
+-    gcashVerified: false,
++    gcashVerified: isGcash,
+     status,
+     createdAt: new Date().toISOString(),
+     createdBy: input.createdBy,

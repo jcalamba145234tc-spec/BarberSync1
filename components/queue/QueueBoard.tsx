@@ -12,7 +12,7 @@ import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useQueue } from '../../hooks/useQueue';
 import { isActive, recalculateWaitTimes } from '../../services/queueService';
-import { notifyGcashPending, notifyNewTransaction } from '../../services/notificationService';
+import { notifyNewTransaction } from '../../services/notificationService';
 import { getGcashScreenshotBase64 } from '../../services/storageService';
 import { createTransaction } from '../../services/transactionService';
 import { QueueEntry } from '../../types/queue';
@@ -232,7 +232,6 @@ export function QueueBoard() {
         settings
       );
       await notifyNewTransaction(transaction);
-      if (transaction.status === 'PENDING_GCASH') await notifyGcashPending(transaction);
 
       // Only close the queue entry once the sale is safely stored.
       await setStatus(payEntry.id, 'COMPLETED');

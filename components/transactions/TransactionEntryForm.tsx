@@ -17,7 +17,7 @@ import { calculateRevenueSplit, formatCurrency } from '../../utils/calculations'
 import { parseAmount, validateTransaction } from '../../utils/validation';
 import { createTransaction } from '../../services/transactionService';
 import { getGcashScreenshotBase64 } from '../../services/storageService';
-import { notifyGcashPending, notifyNewTransaction } from '../../services/notificationService';
+import { notifyNewTransaction } from '../../services/notificationService';
 import { SectionCard } from '../ui/SectionCard';
 
 interface TransactionEntryFormProps {
@@ -144,7 +144,6 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
         settings
       );
       await notifyNewTransaction(transaction);
-      if (transaction.status === 'PENDING_GCASH') await notifyGcashPending(transaction);
       reset();
       onSaved(transaction);
     } catch (error) {
@@ -236,7 +235,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
             </Button>
             {!!screenshotUri && <Image source={{ uri: screenshotUri }} style={styles.preview} />}
             <Text variant="bodySmall" style={styles.muted}>
-              GCash payments are saved as “Pending GCash” until the owner verifies them.
+              The payment is saved as verified. Keep the reference number for your records; the screenshot is optional.
             </Text>
           </View>
         )}
