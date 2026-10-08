@@ -4,33 +4,53 @@
  */
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Button, Chip, HelperText, SegmentedButtons, Text, TextInput } from 'react-native-paper';
+import { Button, Chip, Divider, SegmentedButtons, Text } from 'react-native-paper';
 import { AppSnackbar } from '../../components/ui/AppSnackbar';
 import { BarberPerformanceTable } from '../../components/dashboard/BarberPerformanceTable';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingState } from '../../components/ui/LoadingState';
+import { RangeCalendar } from '../../components/reports/RangeCalendar';
 import { ReportSummary } from '../../components/reports/ReportSummary';
 import { Screen } from '../../components/ui/Screen';
 import { SectionCard } from '../../components/ui/SectionCard';
 import { Colors } from '../../constants/colors';
 import { useAppData } from '../../context/AppDataContext';
 import { useReport } from '../../hooks/useReport';
+import { AUTO_MONTHLY_EXPENSE_PREFIX } from '../../services/reportService';
 import { PaymentMethod } from '../../types/transaction';
 import { ReportFilters } from '../../types/report';
 import { formatCurrency } from '../../utils/calculations';
-import { buildRange, customRange, formatDate, parseInputDate } from '../../utils/dateUtils';
+import { buildRange, customRange, formatDate } from '../../utils/dateUtils';
 import type { RangePreset } from '../../utils/dateUtils';
 import { exportTransactionsCsv } from '../../utils/csvExport';
 import { exportReportPdf } from '../../utils/pdfExport';
 
 type Preset = RangePreset | 'CUSTOM';
 
+const daysAgo = (count: number): Date => {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - count);
+};
+
+const QUICK_RANGES: { label: string; get: () => [Date, Date] }[] = [
+  { label: 'Yesterday', get: () => [daysAgo(1), daysAgo(1)] },
+  { label: 'Last 7 days', get: () => [daysAgo(6), daysAgo(0)] },
+  { label: 'Last 30 days', get: () => [daysAgo(29), daysAgo(0)] },
+  {
+    label: 'Last month',
+    get: () => {
+      const now = new Date();
+      return [new Date(now.getFullYear(), now.getMonth() - 1, 1), new Date(now.getFullYear(), now.getMonth(), 0)];
+    },
+  },
+];
+
 export default function ReportsScreen() {
   const { settings, barbers } = useAppData();
   const [preset, setPreset] = useState<Preset>('TODAY');
-  const [fromText, setFromText] = useState('');
-  const [toText, setToText] = useState('');
-  const [customError, setCustomError] = useState<string | null>(null);
+  const [customFrom, setCustomFrom] = useState<Date | null>(null);
+  const [customTo, setCustomTo] = useState<Date | null>(null);
+  const [jumpKey, setJumpKey] = useState(0);
   const [payment, setPayment] = useState<PaymentMethod | null>(null);
   const [barberId, setBarberId] = useState<string | null>(null);
   const [exporting, setExporting] = useState<'PDF' | 'CSV' | null>(null);
@@ -38,13 +58,11 @@ export default function ReportsScreen() {
 
   const range = useMemo(() => {
     if (preset === 'CUSTOM') {
-      const from = parseInputDate(fromText);
-      const to = parseInputDate(toText);
-      if (from && to && from <= to) return customRange(from, to);
+      if (customFrom && customTo && customFrom <= customTo) return customRange(customFrom, customTo);
       return buildRange('TODAY');
     }
     return buildRange(preset);
-  }, [preset, fromText, toText]);
+  }, [preset, customFrom, customTo]);
 
   const filters: ReportFilters = useMemo(
     () => ({
@@ -59,19 +77,25 @@ export default function ReportsScreen() {
 
   const { report, transactions, expenses, loading, error, refresh } = useReport(filters, settings);
 
-  const applyCustom = () => {
-    const from = parseInputDate(fromText);
-    const to = parseInputDate(toText);
-    if (!from || !to) {
-      setCustomError('Use the format YYYY-MM-DD for both dates.');
-      return;
+  const listedExpenseTotal = useMemo(
+    () => expenses.reduce((sum, expense) => sum + expense.amount, 0),
+    [expenses]
+  );
+
+  const handlePreset = (value: string) => {
+    if (value === 'CUSTOM' && !customFrom) {
+      // Start on today so the calendar and the report agree.
+      const today = new Date();
+      setCustomFrom(today);
+      setCustomTo(today);
     }
-    if (from > to) {
-      setCustomError('The start date must come before the end date.');
-      return;
-    }
-    setCustomError(null);
-    setPreset('CUSTOM');
+    setPreset(value as Preset);
+  };
+
+  const applyQuickRange = (from: Date, to: Date) => {
+    setCustomFrom(from);
+    setCustomTo(to);
+    setJumpKey((key) => key + 1);
   };
 
   const handlePdf = async () => {
@@ -123,7 +147,7 @@ export default function ReportsScreen() {
         <SectionCard title="Period" subtitle={`${range.label} · ${formatDate(range.from)} – ${formatDate(range.to)}`}>
           <SegmentedButtons
             value={preset === 'CUSTOM' ? 'CUSTOM' : preset}
-            onValueChange={(value) => setPreset(value as Preset)}
+            onValueChange={handlePreset}
             buttons={[
               { value: 'TODAY', label: 'Today' },
               { value: 'WEEK', label: 'Week' },
@@ -131,29 +155,40 @@ export default function ReportsScreen() {
               { value: 'CUSTOM', label: 'Custom' },
             ]}
           />
+
           {preset === 'CUSTOM' && (
-            <View style={styles.customRow}>
-              <TextInput
-                label="From (YYYY-MM-DD)"
-                mode="outlined"
-                dense
-                style={styles.dateInput}
-                value={fromText}
-                onChangeText={setFromText}
+            <View style={styles.customBox}>
+              <Text variant="labelLarge" style={styles.customTitle}>Quick ranges</Text>
+              <View style={styles.chips}>
+                {QUICK_RANGES.map((quick) => (
+                  <Chip
+                    key={quick.label}
+                    onPress={() => {
+                      const [from, to] = quick.get();
+                      applyQuickRange(from, to);
+                    }}
+                  >
+                    {quick.label}
+                  </Chip>
+                ))}
+              </View>
+
+              <Text variant="labelLarge" style={styles.customTitle}>Pick from the calendar</Text>
+              <RangeCalendar
+                from={customFrom}
+                to={customTo}
+                jumpKey={jumpKey}
+                onSelect={(from, to) => {
+                  setCustomFrom(from);
+                  setCustomTo(to);
+                }}
               />
-              <TextInput
-                label="To (YYYY-MM-DD)"
-                mode="outlined"
-                dense
-                style={styles.dateInput}
-                value={toText}
-                onChangeText={setToText}
-              />
-              <Button mode="contained-tonal" onPress={applyCustom}>Apply</Button>
             </View>
           )}
-          <HelperText type="error" visible={!!customError}>{customError}</HelperText>
 
+          <Divider style={styles.divider} />
+
+          <Text variant="labelLarge" style={styles.filterLabel}>Payment method</Text>
           <View style={styles.chips}>
             <Chip selected={payment === 'CASH'} onPress={() => setPayment(payment === 'CASH' ? null : 'CASH')}>
               Cash
@@ -161,16 +196,25 @@ export default function ReportsScreen() {
             <Chip selected={payment === 'GCASH'} onPress={() => setPayment(payment === 'GCASH' ? null : 'GCASH')}>
               GCash
             </Chip>
-            {barbers.map((barber) => (
-              <Chip
-                key={barber.id}
-                selected={barberId === barber.id}
-                onPress={() => setBarberId(barberId === barber.id ? null : barber.id)}
-              >
-                {barber.name}
-              </Chip>
-            ))}
           </View>
+
+          {barbers.length > 0 && (
+            <>
+              <Text variant="labelLarge" style={styles.filterLabel}>Barber</Text>
+              <View style={styles.chips}>
+                {barbers.map((barber) => (
+                  <Chip
+                    key={barber.id}
+                    selected={barberId === barber.id}
+                    onPress={() => setBarberId(barberId === barber.id ? null : barber.id)}
+                  >
+                    {barber.name}
+                  </Chip>
+                ))}
+              </View>
+            </>
+          )}
+
           {(payment || barberId) && (
             <Text variant="bodySmall" style={styles.muted}>
               Filtered view: shop-wide expenses are excluded from net income.
@@ -195,18 +239,40 @@ export default function ReportsScreen() {
                 <BarberPerformanceTable rows={report.barbers} />
               </SectionCard>
 
-              <SectionCard title="Expenses in this period" subtitle={`Monthly fixed cost: ${formatCurrency(settings.monthlyFixedExpense)}`}>
+              <SectionCard
+                title="Expenses in this period"
+                subtitle={`Monthly fixed cost: ${formatCurrency(settings.monthlyFixedExpense)} (deducted automatically on full-month reports)`}
+              >
                 {expenses.length === 0 ? (
                   <EmptyState icon="🧮" title="No expenses recorded" message="Add expenses to see net income." />
                 ) : (
-                  expenses.map((expense) => (
-                    <View key={expense.id} style={styles.expenseRow}>
-                      <Text variant="bodyMedium">{expense.name}</Text>
-                      <Text variant="bodyMedium" style={styles.expenseAmount}>
-                        {formatCurrency(expense.amount)}
+                  <>
+                    {expenses.map((expense) => {
+                      const automatic = expense.id.startsWith(AUTO_MONTHLY_EXPENSE_PREFIX);
+                      return (
+                        <View key={expense.id} style={styles.expenseRow}>
+                          <View style={styles.expenseInfo}>
+                            <Text variant="bodyMedium">{expense.name}</Text>
+                            {automatic && (
+                              <Text variant="bodySmall" style={styles.muted}>
+                                Added automatically from Settings
+                              </Text>
+                            )}
+                          </View>
+                          <Text variant="bodyMedium" style={styles.expenseAmount}>
+                            {formatCurrency(expense.amount)}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                    <Divider style={styles.divider} />
+                    <View style={styles.expenseRow}>
+                      <Text variant="titleSmall" style={styles.totalLabel}>Total</Text>
+                      <Text variant="titleSmall" style={styles.expenseAmount}>
+                        {formatCurrency(listedExpenseTotal)}
                       </Text>
                     </View>
-                  ))
+                  </>
                 )}
               </SectionCard>
 
@@ -242,12 +308,24 @@ export default function ReportsScreen() {
 }
 
 const styles = StyleSheet.create({
-  customRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' },
-  dateInput: { flexGrow: 1, minWidth: 140, backgroundColor: Colors.surface },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
-  muted: { color: Colors.textMuted, marginTop: 6 },
-  expenseRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
+  customBox: {
+    marginTop: 12,
+    padding: 12,
+    gap: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
+  customTitle: { color: Colors.text, fontWeight: '700' },
+  divider: { marginVertical: 6 },
+  filterLabel: { color: Colors.textMuted, marginTop: 4 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  muted: { color: Colors.textMuted, marginTop: 2 },
+  expenseRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingVertical: 4 },
+  expenseInfo: { flex: 1 },
   expenseAmount: { fontWeight: '700', color: Colors.danger },
+  totalLabel: { fontWeight: '700', color: Colors.text },
   exportRow: { flexDirection: 'row', gap: 10 },
   exportButton: { flex: 1, borderRadius: 12 },
 });
