@@ -63,6 +63,7 @@ export function QueueBoard() {
   const [processingReceipt, setProcessingReceipt] = useState(false);
   const [payBarberId, setPayBarberId] = useState<string>('');
   const [payError, setPayError] = useState<string | null>(null);
+  const [tip, setTip] = useState('');
   const [paying, setPaying] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -142,6 +143,7 @@ export function QueueBoard() {
     setGcashReceiptBase64(null);
     setProcessingReceipt(false);
     setPayBarberId(entry.barberId ?? (user?.role === 'BARBER' ? user.id : ''));
+    setTip('');
     setPayError(null);
   };
 
@@ -207,6 +209,12 @@ export function QueueBoard() {
       return;
     }
 
+    const numericTip = tip.trim() === '' ? 0 : parseAmount(tip);
+    if (!Number.isFinite(numericTip) || numericTip < 0) {
+      setPayError('Enter a valid tip amount, or leave it empty.');
+      return;
+    }
+
     const chosen = barbers.find((b) => b.id === payBarberId);
     const fallback =
       payEntry.barberId && payEntry.barberName
@@ -242,8 +250,13 @@ export function QueueBoard() {
       await notifyNewTransaction(transaction);
 
       // Only close the queue entry once the sale is safely stored.
-      await setStatus(payEntry.id, 'COMPLETED');
-      setToast(formatCurrency(numericAmount) + ' recorded for ' + payEntry.customerName);
+      await setStatus(payEntry.id, 'COMPLETED', numericTip > 0 ? { tip: numericTip } : {});
+      setToast(
+        formatCurrency(numericAmount) +
+          ' recorded for ' +
+          payEntry.customerName +
+          (numericTip > 0 ? ' (+' + formatCurrency(numericTip) + ' tip)' : '')
+      );
       closePayment();
     } catch (error) {
       console.warn('[BarberSync] Could not record the queue payment.', error);
@@ -300,11 +313,17 @@ export function QueueBoard() {
       </SectionCard>
 
       {doneToday.length > 0 && (
-        <SectionCard title="Finished today" subtitle={`${doneToday.length} customer(s)`}>
+        <SectionCard title="Finished today" subtitle={
+          `${doneToday.length} customer(s)` +
+          (doneToday.some((e) => e.tip)
+            ? ' - Tips ' + formatCurrency(doneToday.reduce((sum, e) => sum + (e.tip ?? 0), 0))
+            : '')
+        }>
           {doneToday.map((entry) => (
             <Text key={entry.id} variant="bodySmall" style={styles.done}>
               {entry.customerName} - {entry.serviceName} -{' '}
               {entry.status === 'COMPLETED' ? 'Completed' : 'Cancelled'}
+        {entry.tip ? ' - Tip ' + formatCurrency(entry.tip) : ''}
             </Text>
           ))}
         </SectionCard>
@@ -393,6 +412,15 @@ export function QueueBoard() {
               keyboardType="numeric"
               value={amount}
               onChangeText={setAmount}
+              style={styles.field}
+            />
+
+            <TextInput
+              label="Tip for barber (optional)"
+              mode="outlined"
+              keyboardType="numeric"
+              value={tip}
+              onChangeText={setTip}
               style={styles.field}
             />
 

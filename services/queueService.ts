@@ -189,9 +189,9 @@ export async function addToQueue(input: QueueInput): Promise<QueueEntry> {
   return entry;
 }
 
-export async function updateQueueStatus(id: string, status: QueueStatus): Promise<void> {
+export async function updateQueueStatus(id: string, status: QueueStatus, extra: Partial<QueueEntry> = {}): Promise<void> {
   const now = new Date().toISOString();
-  const changes: Partial<QueueEntry> = { status };
+  const changes: Partial<QueueEntry> = { ...extra, status };
   if (status === 'IN_SERVICE') changes.startedAt = now;
   if (status === 'COMPLETED' || status === 'CANCELLED') changes.completedAt = now;
 

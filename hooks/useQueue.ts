@@ -91,10 +91,10 @@ export function useQueue(services: BarberService[], assignedBarberId?: string) {
   );
 
   const setStatus = useCallback(
-    async (id: string, status: QueueStatus) => {
+    async (id: string, status: QueueStatus, extra?: Partial<QueueEntry>) => {
       setBusyId(id);
       try {
-        await updateQueueStatus(id, status);
+        await updateQueueStatus(id, status, extra);
       } catch (error) {
         console.warn('[BarberSync] Status change was rejected.', error);
       } finally {

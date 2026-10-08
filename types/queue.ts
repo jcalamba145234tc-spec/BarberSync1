@@ -16,6 +16,8 @@ export interface QueueEntry {
   estimatedWaitTime: number; // minutes
   startedAt: string | null;
   completedAt: string | null;
+  /** Optional customer tip (PHP), recorded by the owner when completing. Belongs to the barber. */
+  tip?: number | null;
 }
 
 export interface QueueInput {
