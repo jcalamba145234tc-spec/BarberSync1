@@ -158,6 +158,11 @@ async function pushOrQueueEntry(id: string, changes: Record<string, unknown>): P
       await setDoc(doc(firestore, COLLECTIONS.queue, id), changes, { merge: true });
       return;
     } catch (error) {
+      if ((error as { code?: string })?.code === 'permission-denied') {
+        // Rejected by security rules: queueing it would just fail forever.
+        console.warn('[BarberSync] Queue write rejected by Firestore rules.', error);
+        throw error;
+      }
       console.warn('[BarberSync] Queue write failed, queued for sync.', error);
     }
   }

@@ -95,8 +95,10 @@ export function useQueue(services: BarberService[], assignedBarberId?: string) {
       setBusyId(id);
       try {
         await updateQueueStatus(id, status);
-        await load();
+      } catch (error) {
+        console.warn('[BarberSync] Status change was rejected.', error);
       } finally {
+        await load();
         setBusyId(null);
       }
     },

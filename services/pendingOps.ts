@@ -101,6 +101,11 @@ export async function flushPendingOps(
       await runOp(op, skipTransactionIds);
       flushed += 1;
     } catch (error) {
+      if ((error as { code?: string })?.code === 'permission-denied') {
+        // Retrying can never fix a rules rejection, so drop it instead of looping forever.
+        console.warn('[BarberSync] Dropping a queued edit rejected by Firestore rules.', op.kind);
+        continue;
+      }
       console.warn('[BarberSync] Could not replay a queued edit, keeping it.', error);
       stillPending.push(op);
     }
