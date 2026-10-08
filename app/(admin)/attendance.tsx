@@ -5,20 +5,20 @@
  * attendance/ collection, or every read/write here gets permission-denied.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import {
   Avatar,
   Button,
   Card,
   Chip,
   Divider,
-  HelperText,
   IconButton,
   SegmentedButtons,
   Text,
   TextInput,
 } from 'react-native-paper';
 import { AppSnackbar } from '../../components/ui/AppSnackbar';
+import { CalendarPicker } from '../../components/ui/CalendarPicker';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { Screen } from '../../components/ui/Screen';
@@ -32,28 +32,13 @@ import {
   saveDailyAttendance,
 } from '../../services/attendanceService';
 import { AttendanceStatus, BarberAttendanceRecord, DailyAttendance } from '../../types/attendance';
-import { formatDate, parseInputDate } from '../../utils/dateUtils';
+import { formatDate } from '../../utils/dateUtils';
 
 function toDateString(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
-}
-
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-/** Last 7 days (oldest first, today last) for the quick day picker. */
-function recentDays(): { dateStr: string; label: string }[] {
-  const days: { dateStr: string; label: string }[] = [];
-  for (let offset = 6; offset >= 0; offset -= 1) {
-    const d = new Date();
-    d.setDate(d.getDate() - offset);
-    const label =
-      offset === 0 ? 'Today' : offset === 1 ? 'Yesterday' : `${WEEKDAYS[d.getDay()]} ${d.getDate()}`;
-    days.push({ dateStr: toDateString(d), label });
-  }
-  return days;
 }
 
 const STATUS_CONFIG: Record<
@@ -79,15 +64,7 @@ export default function AttendanceScreen() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
-  const [dateText, setDateText] = useState('');
-  const [dateError, setDateError] = useState<string | null>(null);
-  const quickDays = useMemo(() => recentDays(), [dateStr]);
-
-  // Keep the "Go to date" box in step with the arrows / chips.
-  useEffect(() => {
-    setDateText(dateStr);
-    setDateError(null);
-  }, [dateStr]);
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   const isAdmin = user?.role === 'ADMIN';
 
@@ -119,22 +96,10 @@ export default function AttendanceScreen() {
     setCurrentDate(new Date());
   };
 
-  // Jump straight to a day picked from the quick strip.
-  const goToDay = (value: string) => {
-    const parsed = parseInputDate(value);
-    if (parsed) setCurrentDate(parsed);
-  };
-
-  // Jump to a typed date (YYYY-MM-DD).
-  const handleGoToDate = () => {
-    const parsed = parseInputDate(dateText);
-    // Reject impossible dates like 2026-02-31 that JS would silently roll over.
-    if (!parsed || toDateString(parsed) !== dateText.trim()) {
-      setDateError('Use the format YYYY-MM-DD, e.g. 2026-10-07.');
-      return;
-    }
-    setDateError(null);
-    setCurrentDate(parsed);
+  // A date tapped in the calendar: jump there and fold the calendar away.
+  const handlePickDate = (date: Date) => {
+    setCurrentDate(date);
+    setCalendarOpen(false);
   };
 
   // Update status for a barber
@@ -222,11 +187,20 @@ export default function AttendanceScreen() {
                   Not saved yet
                 </Text>
               )}
-              {!isToday && (
-                <Button compact onPress={jumpToToday} style={styles.jumpBtn}>
-                  Return to Today
+              <View style={styles.dateActions}>
+                {!isToday && (
+                  <Button compact icon="calendar-today" onPress={jumpToToday}>
+                    Today
+                  </Button>
+                )}
+                <Button
+                  compact
+                  icon={calendarOpen ? 'chevron-up' : 'calendar-month'}
+                  onPress={() => setCalendarOpen((open) => !open)}
+                >
+                  {calendarOpen ? 'Hide calendar' : 'Pick a date'}
                 </Button>
-              )}
+              </View>
             </View>
 
             <IconButton
@@ -238,46 +212,14 @@ export default function AttendanceScreen() {
           </Card.Content>
         </Card>
 
-        {/* Find a specific day: last 7 days + any typed date */}
-        <Card style={styles.filterCard}>
-          <Card.Content style={styles.filterContent}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayStrip}>
-              {quickDays.map((day) => (
-                <Chip
-                  key={day.dateStr}
-                  selected={day.dateStr === dateStr}
-                  showSelectedCheck={false}
-                  onPress={() => goToDay(day.dateStr)}
-                >
-                  {day.label}
-                </Chip>
-              ))}
-            </ScrollView>
-
-            <View style={styles.goRow}>
-              <TextInput
-                mode="outlined"
-                dense
-                label="Go to date (YYYY-MM-DD)"
-                value={dateText}
-                onChangeText={(text) => {
-                  setDateText(text);
-                  setDateError(null);
-                }}
-                onSubmitEditing={handleGoToDate}
-                autoCapitalize="none"
-                keyboardType="numbers-and-punctuation"
-                style={styles.goInput}
-              />
-              <Button mode="contained" compact onPress={handleGoToDate}>
-                Go
-              </Button>
-            </View>
-            <HelperText type="error" visible={!!dateError}>
-              {dateError}
-            </HelperText>
-          </Card.Content>
-        </Card>
+        {/* Tap-to-pick calendar: any date, any month or year */}
+        {calendarOpen && (
+          <Card style={styles.filterCard}>
+            <Card.Content style={styles.filterContent}>
+              <CalendarPicker value={currentDate} onChange={handlePickDate} />
+            </Card.Content>
+          </Card>
+        )}
 
         {/* Attendance Summary Stats */}
         <View style={styles.summaryRow}>
@@ -506,20 +448,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     gap: 8,
   },
-  dayStrip: {
-    gap: 8,
-  },
-  goRow: {
+  dateActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-  },
-  goInput: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  jumpBtn: {
-    marginTop: 2,
+    gap: 4,
   },
   summaryRow: {
     flexDirection: 'row',
