@@ -22,11 +22,11 @@ Built for **CCE106 – Application Development and Emerging Technologies**.
 | Services | Admin-managed menu with price, duration, active/inactive, minimum price rule (₱150 default) |
 | Expenses | Rent, utilities, supplies, maintenance, other — used to compute net income |
 | Reports | Daily / weekly / monthly / custom range, filter by payment method and barber, PDF + CSV export |
-| GCash verification | Screenshot upload to Firebase Storage, admin verifies or rejects |
+| GCash verification | Reference number + compressed screenshot saved inside the transaction document in Firestore (no Cloud Storage needed); GCash payments recorded by the owner are auto-verified |
 | Offline mode | Transactions saved to AsyncStorage when offline and auto-synced (no duplicates) when back online |
 | Notifications | Local notifications for new transactions, pending GCash, sync completed, end-of-day summary |
 | Settings | Shop details, revenue split %, minimum price, monthly fixed expense (₱24,000 default), notifications |
-| Security | Role-based UI **and** Firestore/Storage security rules |
+| Security | Role-based UI **and** Firestore security rules |
 
 ---
 
@@ -35,7 +35,7 @@ Built for **CCE106 – Application Development and Emerging Technologies**.
 - React Native + **Expo** (managed workflow)
 - **TypeScript** (strict mode)
 - **Expo Router** for file-based navigation and role-based tab layouts
-- **Firebase**: Authentication, Firestore, Storage
+- **Firebase**: Authentication, Firestore
 - **AsyncStorage** for offline data and caching
 - **React Native Paper** for the UI components
 - **expo-notifications** (local notifications; FCM-ready)
@@ -76,16 +76,15 @@ Then press `a` (Android emulator), `i` (iOS simulator) or scan the QR code with 
    ```
 3. **Authentication → Sign-in method → Email/Password → Enable.**
 4. **Firestore Database → Create database** (production mode).
-5. **Storage → Get started.** *(Optional — needs the Blaze plan; see the note below.)*
-6. Publish the rules from `firestore.rules` and `storage.rules`
+5. Publish the rules from `firestore.rules`
    (paste them into Console → Rules, or use the Firebase CLI):
 
    ```bash
    npm i -g firebase-tools
    firebase login
-   firebase deploy --only firestore:rules,storage
+   firebase deploy --only firestore:rules
    ```
-7. Restart Expo with a cleared cache after editing `.env`: `npx expo start -c`.
+6. Restart Expo with a cleared cache after editing `.env`: `npx expo start -c`.
 
 ### Creating accounts
 
@@ -163,7 +162,7 @@ utils/                    calculations, dateUtils, validation, csvExport, pdfExp
 types/                    auth, transaction, service, queue, expense, report
 constants/                colors, config
 firestore.rules           Firestore security rules
-storage.rules             Storage security rules
+storage.rules             Storage security rules (unused: screenshots live in Firestore)
 ```
 
 ---
@@ -175,7 +174,7 @@ users/{userId}          id, name, email, role, phone, active, createdAt
 services/{serviceId}    id, name, price, durationMinutes, active, createdAt
 transactions/{txnId}    id, customerName, barberId, barberName, serviceId, serviceName,
                         amount, shopShare, barberShare, paymentMethod, gcashReference,
-                        gcashScreenshotUrl, gcashVerified, status, createdAt, createdBy, synced
+                        gcashScreenshotBase64, gcashVerified, status, createdAt, createdBy, synced
 queue/{queueId}         id, customerName, serviceId, serviceName, barberId, barberName,
                         status, arrivalTime, estimatedWaitTime, startedAt, completedAt
 expenses/{expenseId}    id, name, amount, category, date, notes, createdAt
@@ -183,8 +182,6 @@ settings/shop           shopName, shopAddress, shopContact, shopPercentage,
                         barberPercentage, minimumServicePrice, monthlyFixedExpense,
                         notificationsEnabled, endOfDaySummaryEnabled
 ```
-
-Storage: `gcash-screenshots/{transactionId}.jpg`
 
 ---
 
@@ -275,7 +272,7 @@ Until then the app uses **local** notifications, which cover every in-app event
 
 ## 14. Known limitations
 
-- Cloud Storage for GCash screenshots requires the Blaze billing plan. Without it, screenshots are stored and displayed on the device only; the reference number is still saved to Firestore.
+- GCash screenshots are stored as compressed base64 text (max 350 KB) inside the transaction document instead of Cloud Storage, because Cloud Storage needs the paid Blaze plan. Very large images are downscaled to fit.
 - Notifications are automatically disabled inside Expo Go (SDK 53+ removed the module). Everything else works; use a development build to demo them.
 - Remote push notifications (FCM) need EAS credentials — the service layer is ready, the credentials are not included.
 - Firebase Auth uses in-memory persistence plus our own AsyncStorage profile cache; the app restores your session but Firebase itself may ask for a fresh login after a long time offline.
