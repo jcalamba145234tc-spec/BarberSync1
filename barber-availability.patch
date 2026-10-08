@@ -1,0 +1,171 @@
+diff --git a/components/queue/QueueBoard.tsx b/components/queue/QueueBoard.tsx
+index 02d5b92..f071fbc 100644
+--- a/components/queue/QueueBoard.tsx
++++ b/components/queue/QueueBoard.tsx
+@@ -10,6 +10,7 @@ import { Button, Chip, Dialog, HelperText, Portal, Snackbar, Text, TextInput } f
+ import { Colors } from '../../constants/colors';
+ import { useAppData } from '../../context/AppDataContext';
+ import { useAuth } from '../../hooks/useAuth';
++import { unavailableLabel, useBarberAvailability } from '../../hooks/useBarberAvailability';
+ import { useQueue } from '../../hooks/useQueue';
+ import { isActive, recalculateWaitTimes } from '../../services/queueService';
+ import { notifyNewTransaction } from '../../services/notificationService';
+@@ -35,6 +36,7 @@ export function QueueBoard() {
+   const { user } = useAuth();
+   const isBarberPortal = user?.role === 'BARBER';
+   const readOnly = isBarberPortal;
++  const { unavailable } = useBarberAvailability();
+   const { queue, loading, busyId, refresh, add, setStatus } = useQueue(
+     services,
+     isBarberPortal ? user?.id : undefined
+@@ -91,6 +93,10 @@ export function QueueBoard() {
+       setErrors({ ...result.errors, barberId: 'Choose the barber requested by the customer.' });
+       return;
+     }
++    if (!isBarberPortal && unavailable[assignedBarberId]) {
++      setErrors({ ...result.errors, barberId: 'That barber is absent or on leave today. Choose another barber.' });
++      return;
++    }
+     const barber =
+       isBarberPortal && user
+         ? { id: user.id, name: user.name }
+@@ -350,12 +356,13 @@ export function QueueBoard() {
+                     <Chip
+                       key={barber.id}
+                       selected={barberId === barber.id}
++                      disabled={!!unavailable[barber.id]}
+                       onPress={() => {
+                         setBarberId(barber.id);
+                         setErrors((current) => ({ ...current, barberId: '' }));
+                       }}
+                     >
+-                      {barber.name}
++                      {unavailable[barber.id] ? `${barber.name} · ${unavailableLabel(unavailable[barber.id])}` : barber.name}
+                     </Chip>
+                   ))}
+                 </View>
+@@ -447,9 +454,10 @@ export function QueueBoard() {
+                     <Chip
+                       key={barber.id}
+                       selected={payBarberId === barber.id}
++                      disabled={!!unavailable[barber.id]}
+                       onPress={() => setPayBarberId(barber.id)}
+                     >
+-                      {barber.name}
++                      {unavailable[barber.id] ? `${barber.name} · ${unavailableLabel(unavailable[barber.id])}` : barber.name}
+                     </Chip>
+                   ))}
+                 </View>
+diff --git a/components/transactions/TransactionEntryForm.tsx b/components/transactions/TransactionEntryForm.tsx
+index 0d99c0a..f7b94c2 100644
+--- a/components/transactions/TransactionEntryForm.tsx
++++ b/components/transactions/TransactionEntryForm.tsx
+@@ -12,6 +12,7 @@ import {
+ import { Colors } from '../../constants/colors';
+ import { useAppData } from '../../context/AppDataContext';
+ import { useAuth } from '../../hooks/useAuth';
++import { unavailableLabel, useBarberAvailability } from '../../hooks/useBarberAvailability';
+ import { PaymentMethod, Transaction } from '../../types/transaction';
+ import { calculateRevenueSplit, formatCurrency } from '../../utils/calculations';
+ import { parseAmount, validateTransaction } from '../../utils/validation';
+@@ -29,6 +30,7 @@ interface TransactionEntryFormProps {
+ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: TransactionEntryFormProps) {
+   const { user } = useAuth();
+   const { services, barbers, settings } = useAppData();
++  const { unavailable } = useBarberAvailability();
+   const activeServices = useMemo(() => services.filter((s) => s.active), [services]);
+ 
+   const [customerName, setCustomerName] = useState('');
+@@ -121,6 +123,11 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+       return;
+     }
+ 
++    if (!lockBarberToCurrentUser && unavailable[barberId]) {
++      setSaveError('That barber is absent or on leave today. Choose another barber.');
++      return;
++    }
++
+     const service = services.find((s) => s.id === serviceId);
+     const barber = lockBarberToCurrentUser
+       ? { id: user.id, name: user.name }
+@@ -180,13 +187,19 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+                 key={barber.id}
+                 selected={barberId === barber.id}
+                 showSelectedCheck
++                disabled={!!unavailable[barber.id]}
+                 onPress={() => setBarberId(barber.id)}
+               >
+-                {barber.name}
++                {unavailable[barber.id] ? `${barber.name} · ${unavailableLabel(unavailable[barber.id])}` : barber.name}
+               </Chip>
+             ))}
+           </View>
+           <HelperText type="error" visible={!!errors.barberId}>{errors.barberId}</HelperText>
++          {Object.keys(unavailable).length > 0 && (
++            <Text variant="bodySmall" style={styles.muted}>
++              Barbers marked absent or on leave in today's attendance can't be selected.
++            </Text>
++          )}
+         </SectionCard>
+       )}
+ 
+diff --git a/hooks/useBarberAvailability.ts b/hooks/useBarberAvailability.ts
+new file mode 100644
+index 0000000..a104e1a
+--- /dev/null
++++ b/hooks/useBarberAvailability.ts
+@@ -0,0 +1,54 @@
++/**
++ * Which barbers can take customers today, based on the attendance the admin
++ * saved. ABSENT and OFF (leave / day off) barbers are unavailable, so they
++ * cannot be picked when the admin logs a service or adds a walk-in to the
++ * queue. LATE barbers are still available. A day with no saved attendance
++ * counts everyone as available (the default is "Present").
++ */
++import { useCallback, useState } from 'react';
++import { useFocusEffect } from 'expo-router';
++import { useAppData } from '../context/AppDataContext';
++import { getDailyAttendance } from '../services/attendanceService';
++import { AttendanceStatus } from '../types/attendance';
++
++/** Local-date key (YYYY-MM-DD), same format the Attendance screen saves under. */
++function todayKey(): string {
++  const now = new Date();
++  const y = now.getFullYear();
++  const m = String(now.getMonth() + 1).padStart(2, '0');
++  const d = String(now.getDate()).padStart(2, '0');
++  return `${y}-${m}-${d}`;
++}
++
++export type UnavailableStatus = Extract<AttendanceStatus, 'ABSENT' | 'OFF'>;
++
++export function unavailableLabel(status: UnavailableStatus): string {
++  return status === 'OFF' ? 'On leave' : 'Absent';
++}
++
++export function useBarberAvailability() {
++  const { barbers } = useAppData();
++  const [unavailable, setUnavailable] = useState<Record<string, UnavailableStatus>>({});
++
++  const refresh = useCallback(async () => {
++    try {
++      const attendance = await getDailyAttendance(todayKey(), barbers);
++      const next: Record<string, UnavailableStatus> = {};
++      attendance.records.forEach((record) => {
++        if (record.status === 'ABSENT' || record.status === 'OFF') next[record.barberId] = record.status;
++      });
++      setUnavailable(next);
++    } catch (error) {
++      console.warn('[BarberSync] Could not load barber availability.', error);
++    }
++  }, [barbers]);
++
++  // Re-check every time the screen is shown, so attendance changes apply right away.
++  useFocusEffect(
++    useCallback(() => {
++      refresh();
++    }, [refresh])
++  );
++
++  return { unavailable, refresh };
++}

@@ -10,6 +10,7 @@ import { Button, Chip, Dialog, HelperText, Portal, Snackbar, Text, TextInput } f
 import { Colors } from '../../constants/colors';
 import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../hooks/useAuth';
+import { unavailableLabel, useBarberAvailability } from '../../hooks/useBarberAvailability';
 import { useQueue } from '../../hooks/useQueue';
 import { isActive, recalculateWaitTimes } from '../../services/queueService';
 import { notifyNewTransaction } from '../../services/notificationService';
@@ -35,6 +36,7 @@ export function QueueBoard() {
   const { user } = useAuth();
   const isBarberPortal = user?.role === 'BARBER';
   const readOnly = isBarberPortal;
+  const { unavailable } = useBarberAvailability();
   const { queue, loading, busyId, refresh, add, setStatus } = useQueue(
     services,
     isBarberPortal ? user?.id : undefined
@@ -89,6 +91,10 @@ export function QueueBoard() {
     const assignedBarberId = isBarberPortal ? user?.id : barberId;
     if (!assignedBarberId) {
       setErrors({ ...result.errors, barberId: 'Choose the barber requested by the customer.' });
+      return;
+    }
+    if (!isBarberPortal && unavailable[assignedBarberId]) {
+      setErrors({ ...result.errors, barberId: 'That barber is absent or on leave today. Choose another barber.' });
       return;
     }
     const barber =
@@ -350,12 +356,13 @@ export function QueueBoard() {
                     <Chip
                       key={barber.id}
                       selected={barberId === barber.id}
+                      disabled={!!unavailable[barber.id]}
                       onPress={() => {
                         setBarberId(barber.id);
                         setErrors((current) => ({ ...current, barberId: '' }));
                       }}
                     >
-                      {barber.name}
+                      {unavailable[barber.id] ? `${barber.name} · ${unavailableLabel(unavailable[barber.id])}` : barber.name}
                     </Chip>
                   ))}
                 </View>
@@ -447,9 +454,10 @@ export function QueueBoard() {
                     <Chip
                       key={barber.id}
                       selected={payBarberId === barber.id}
+                      disabled={!!unavailable[barber.id]}
                       onPress={() => setPayBarberId(barber.id)}
                     >
-                      {barber.name}
+                      {unavailable[barber.id] ? `${barber.name} · ${unavailableLabel(unavailable[barber.id])}` : barber.name}
                     </Chip>
                   ))}
                 </View>

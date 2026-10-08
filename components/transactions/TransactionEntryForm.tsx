@@ -12,6 +12,7 @@ import {
 import { Colors } from '../../constants/colors';
 import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../hooks/useAuth';
+import { unavailableLabel, useBarberAvailability } from '../../hooks/useBarberAvailability';
 import { PaymentMethod, Transaction } from '../../types/transaction';
 import { calculateRevenueSplit, formatCurrency } from '../../utils/calculations';
 import { parseAmount, validateTransaction } from '../../utils/validation';
@@ -29,6 +30,7 @@ interface TransactionEntryFormProps {
 export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: TransactionEntryFormProps) {
   const { user } = useAuth();
   const { services, barbers, settings } = useAppData();
+  const { unavailable } = useBarberAvailability();
   const activeServices = useMemo(() => services.filter((s) => s.active), [services]);
 
   const [customerName, setCustomerName] = useState('');
@@ -121,6 +123,11 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
       return;
     }
 
+    if (!lockBarberToCurrentUser && unavailable[barberId]) {
+      setSaveError('That barber is absent or on leave today. Choose another barber.');
+      return;
+    }
+
     const service = services.find((s) => s.id === serviceId);
     const barber = lockBarberToCurrentUser
       ? { id: user.id, name: user.name }
@@ -180,13 +187,19 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
                 key={barber.id}
                 selected={barberId === barber.id}
                 showSelectedCheck
+                disabled={!!unavailable[barber.id]}
                 onPress={() => setBarberId(barber.id)}
               >
-                {barber.name}
+                {unavailable[barber.id] ? `${barber.name} · ${unavailableLabel(unavailable[barber.id])}` : barber.name}
               </Chip>
             ))}
           </View>
           <HelperText type="error" visible={!!errors.barberId}>{errors.barberId}</HelperText>
+          {Object.keys(unavailable).length > 0 && (
+            <Text variant="bodySmall" style={styles.muted}>
+              Barbers marked absent or on leave in today's attendance can't be selected.
+            </Text>
+          )}
         </SectionCard>
       )}
 
