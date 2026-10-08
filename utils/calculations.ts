@@ -14,6 +14,12 @@ export interface RevenueSplit {
   barberShare: number;
 }
 
+/** Minimal shape of a staff member needed to build the performance table. */
+export interface BarberRef {
+  id: string;
+  name: string;
+}
+
 /** Rounds to 2 decimals so money never drifts because of float math. */
 export function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -54,12 +60,49 @@ export function countableTransactions(transactions: Transaction[]): Transaction[
   return transactions.filter((t) => t.status === 'COMPLETED');
 }
 
-export function buildBarberPerformance(transactions: Transaction[]): BarberPerformance[] {
+function normalizeName(name: string | undefined | null): string {
+  return (name ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * Builds one performance row per barber.
+ *
+ * - Without `barbers`: groups by the barberId saved on each transaction
+ *   (used by the financial report).
+ * - With `barbers` (the real staff list): every transaction is matched to a
+ *   current staff member, first by ID, then by name. This guarantees one row
+ *   per barber, so a transaction saved with a stray/old barberId can never
+ *   create a duplicate row (e.g. "Juan Dela Cruz" twice). Transactions that
+ *   match nobody are left out of the staff table.
+ */
+export function buildBarberPerformance(
+  transactions: Transaction[],
+  barbers?: BarberRef[]
+): BarberPerformance[] {
+  const byId = new Map<string, BarberRef>();
+  const byName = new Map<string, BarberRef>();
+  (barbers ?? []).forEach((b) => {
+    byId.set(b.id, b);
+    const key = normalizeName(b.name);
+    if (key && !byName.has(key)) byName.set(key, b);
+  });
+
   const map = new Map<string, BarberPerformance>();
+
   countableTransactions(transactions).forEach((t) => {
-    const existing = map.get(t.barberId) ?? {
-      barberId: t.barberId,
-      barberName: t.barberName,
+    let barberId = t.barberId;
+    let barberName = t.barberName;
+
+    if (barbers) {
+      const match = byId.get(t.barberId) ?? byName.get(normalizeName(t.barberName));
+      if (!match) return; // not a current staff member
+      barberId = match.id;
+      barberName = match.name;
+    }
+
+    const existing = map.get(barberId) ?? {
+      barberId,
+      barberName,
       serviceCount: 0,
       revenue: 0,
       earnings: 0,
@@ -67,8 +110,9 @@ export function buildBarberPerformance(transactions: Transaction[]): BarberPerfo
     existing.serviceCount += 1;
     existing.revenue = round2(existing.revenue + t.amount);
     existing.earnings = round2(existing.earnings + t.barberShare);
-    map.set(t.barberId, existing);
+    map.set(barberId, existing);
   });
+
   return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
 }
 

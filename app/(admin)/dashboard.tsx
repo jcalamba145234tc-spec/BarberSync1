@@ -103,11 +103,6 @@ export default function AdminDashboard() {
           <StatCard label="Barber payout" value={formatCurrency(todayReport.barberShare)} />
           <StatCard label="Cash" value={formatCurrency(todayReport.cashRevenue)} />
           <StatCard label="GCash" value={formatCurrency(todayReport.gcashRevenue)} />
-          <StatCard
-            label="GCash to verify"
-            value={String(pendingGcash.length)}
-            tone={pendingGcash.length ? 'warning' : 'default'}
-          />
           <StatCard label="In queue" value={String(activeQueue.length)} />
           <StatCard label="This month" value={formatCurrency(monthReport.grossRevenue)} tone="accent" />
         </StatGrid>

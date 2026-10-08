@@ -55,7 +55,13 @@ export default function BarbersScreen() {
   const range = useMemo(() => buildRange(preset), [preset]);
   const { transactions, loading, refresh } = useTransactions({ from: range.from, to: range.to });
 
-  const performance = useMemo(() => buildBarberPerformance(transactions), [transactions]);
+  // FIX: pass the real staff list so each transaction is matched to a current
+  // barber. This prevents duplicate rows (e.g. "Juan Dela Cruz" twice) caused
+  // by a transaction saved with a stray/old barberId.
+  const performance = useMemo(
+    () => buildBarberPerformance(transactions, barbers),
+    [transactions, barbers]
+  );
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -732,4 +738,3 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
 });
-
