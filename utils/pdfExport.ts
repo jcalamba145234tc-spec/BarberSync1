@@ -160,6 +160,7 @@ export function buildReportHtml(
         <tr><td>Gross revenue</td><td class="num">${escapeHtml(formatCurrency(report.grossRevenue))}</td></tr>
         <tr><td>Shop share</td><td class="num">${escapeHtml(formatCurrency(report.shopShare))}</td></tr>
         <tr><td>Barber share (payout)</td><td class="num">${escapeHtml(formatCurrency(report.barberShare))}</td></tr>
+        <tr><td>Tips (100% to barbers, not in revenue)</td><td class="num">${escapeHtml(formatCurrency(report.tips))}</td></tr>
         <tr class="subtotal"><td>Cash revenue</td><td class="num">${escapeHtml(formatCurrency(report.cashRevenue))}</td></tr>
         <tr><td>GCash revenue</td><td class="num">${escapeHtml(formatCurrency(report.gcashRevenue))}</td></tr>
         <tr><td>Completed transactions</td><td class="num">${report.transactionCount.toLocaleString('en-PH')}</td></tr>

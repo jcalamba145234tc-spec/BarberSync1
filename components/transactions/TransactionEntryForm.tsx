@@ -35,6 +35,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
   const [barberId, setBarberId] = useState(lockBarberToCurrentUser ? user?.id ?? '' : '');
   const [serviceId, setServiceId] = useState('');
   const [amount, setAmount] = useState('');
+  const [tip, setTip] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
   const [gcashReference, setGcashReference] = useState('');
   const [screenshotUri, setScreenshotUri] = useState<string | null>(null);
@@ -49,6 +50,8 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
     Number.isNaN(numericAmount) ? 0 : numericAmount,
     settings.shopPercentage
   );
+
+  const numericTip = tip.trim() ? parseAmount(tip) : 0;
 
   const selectService = (id: string, price: number) => {
     setServiceId(id);
@@ -91,6 +94,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
     setCustomerName('');
     setServiceId('');
     setAmount('');
+    setTip('');
     setPaymentMethod('');
     setGcashReference('');
     setScreenshotUri(null);
@@ -106,6 +110,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
       barberId,
       serviceId,
       amount,
+      tip,
       paymentMethod,
       gcashReference,
     });
@@ -135,6 +140,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
           serviceId: service.id,
           serviceName: service.name,
           amount: numericAmount,
+          tip: numericTip,
           paymentMethod: paymentMethod as PaymentMethod,
           gcashReference,
           gcashScreenshotLocalUri: screenshotUri,
@@ -241,6 +247,30 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
         )}
       </SectionCard>
 
+      <SectionCard title="Tip (optional)" subtitle="Goes 100% to the barber. It is not split with the shop.">
+        <View style={styles.chips}>
+          {['20', '50', '100'].map((value) => (
+            <Chip
+              key={value}
+              selected={tip === value}
+              showSelectedCheck
+              onPress={() => setTip(tip === value ? '' : value)}
+            >
+              {formatCurrency(Number(value))}
+            </Chip>
+          ))}
+        </View>
+        <TextInput
+          label="Tip amount (₱)"
+          mode="outlined"
+          keyboardType="numeric"
+          value={tip}
+          onChangeText={setTip}
+          style={styles.tipInput}
+        />
+        <HelperText type="error" visible={!!errors.tip}>{errors.tip}</HelperText>
+      </SectionCard>
+
       <SectionCard title="Revenue split" subtitle="Calculated automatically from shop settings.">
         <View style={styles.splitRow}>
           <View style={styles.splitBox}>
@@ -252,6 +282,12 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
             <Text variant="titleMedium" style={styles.splitValue}>{formatCurrency(preview.barberShare)}</Text>
           </View>
         </View>
+        {!Number.isNaN(numericTip) && numericTip > 0 && (
+          <Text variant="bodySmall" style={styles.muted}>
+            Barber receives {formatCurrency(preview.barberShare)} commission + {formatCurrency(numericTip)} tip ={' '}
+            {formatCurrency(preview.barberShare + numericTip)}
+          </Text>
+        )}
       </SectionCard>
 
       {!!saveError && (
@@ -278,6 +314,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
 const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   gcash: { gap: 6, marginTop: 6 },
+  tipInput: { marginTop: 8 },
   preview: { width: '100%', height: 180, borderRadius: 12, resizeMode: 'cover' },
   muted: { color: Colors.textMuted },
   splitRow: { flexDirection: 'row', gap: 10 },

@@ -25,6 +25,8 @@ export interface FinancialReport {
   grossRevenue: number;
   shopShare: number;
   barberShare: number;
+  /** Total tips (100% to barbers). Not part of grossRevenue, shopShare or barberShare. */
+  tips: number;
   cashRevenue: number;
   gcashRevenue: number;
   transactionCount: number;

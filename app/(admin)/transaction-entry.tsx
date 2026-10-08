@@ -22,7 +22,9 @@ export default function AdminTransactionEntry() {
             setMessage(
               `Saved ${transaction.serviceName} · ${formatCurrency(transaction.amount)} (shop ${formatCurrency(
                 transaction.shopShare
-              )} / barber ${formatCurrency(transaction.barberShare)})`
+              )} / barber ${formatCurrency(transaction.barberShare)})${
+                transaction.tip ? ` + ${formatCurrency(transaction.tip)} tip` : ''
+              }`
             );
             setTimeout(() => router.push('/(admin)/transactions'), 900);
           }}

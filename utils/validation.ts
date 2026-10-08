@@ -15,6 +15,8 @@ export interface TransactionFormValues {
   barberId: string;
   serviceId: string;
   amount: string;
+  /** Optional; blank means no tip. */
+  tip?: string;
   paymentMethod: PaymentMethod | '';
   gcashReference: string;
 }
@@ -47,6 +49,13 @@ export function validateTransaction(values: TransactionFormValues): ValidationRe
   if (!values.amount.trim()) errors.amount = 'Amount is required.';
   else if (Number.isNaN(amount)) errors.amount = 'Amount must be a number.';
   else if (amount <= 0) errors.amount = 'Amount must be greater than 0.';
+
+  if (values.tip && values.tip.trim()) {
+    const tip = parseAmount(values.tip);
+    if (Number.isNaN(tip)) errors.tip = 'Tip must be a number.';
+    else if (tip < 0) errors.tip = 'Tip cannot be negative.';
+    else if (tip > 100000) errors.tip = 'That tip looks too large. Check the amount.';
+  }
 
   if (!values.paymentMethod) errors.paymentMethod = 'Choose Cash or GCash.';
   if (values.paymentMethod === 'GCASH') {

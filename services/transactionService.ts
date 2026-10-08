@@ -21,7 +21,7 @@ import {
   TransactionInput,
   TransactionStatus,
 } from '../types/transaction';
-import { calculateRevenueSplit, resolveSplitPercentage } from '../utils/calculations';
+import { calculateRevenueSplit, resolveSplitPercentage, round2 } from '../utils/calculations';
 import { isWithinRange } from '../utils/dateUtils';
 import { firestore } from './firebase';
 import { createLocalId, readJson, writeJson } from './localStore';
@@ -79,6 +79,7 @@ export function buildTransaction(input: TransactionInput, settings: ShopSettings
     amount: input.amount,
     shopShare,
     barberShare,
+    tip: input.tip && Number.isFinite(input.tip) && input.tip > 0 ? round2(input.tip) : 0,
     paymentMethod: input.paymentMethod,
     gcashReference: isGcash ? (input.gcashReference ?? '').trim() || null : null,
     gcashScreenshotUrl: null,

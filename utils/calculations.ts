@@ -86,6 +86,7 @@ export function buildFinancialReport(
   const grossRevenue = sum(completed.map((t) => t.amount));
   const shopShare = sum(completed.map((t) => t.shopShare));
   const barberShare = sum(completed.map((t) => t.barberShare));
+  const tips = sum(completed.map((t) => t.tip ?? 0));
   const cashRevenue = sum(completed.filter((t) => t.paymentMethod === 'CASH').map((t) => t.amount));
   const gcashRevenue = sum(completed.filter((t) => t.paymentMethod === 'GCASH').map((t) => t.amount));
   const expenseTotal = sum(expenses.map((e) => e.amount));
@@ -95,6 +96,7 @@ export function buildFinancialReport(
     grossRevenue,
     shopShare,
     barberShare,
+    tips,
     cashRevenue,
     gcashRevenue,
     transactionCount: completed.length,

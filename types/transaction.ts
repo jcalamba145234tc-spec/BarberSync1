@@ -17,6 +17,8 @@ export interface Transaction {
   amount: number;
   shopShare: number;
   barberShare: number;
+  /** Optional tip recorded by the owner. Goes 100% to the barber; not part of shop revenue or the split. Missing on older records (treat as 0). */
+  tip?: number;
   paymentMethod: PaymentMethod;
   gcashReference: string | null;
   gcashScreenshotUrl: string | null;
@@ -39,6 +41,7 @@ export interface TransactionInput {
   serviceId: string;
   serviceName: string;
   amount: number;
+  tip?: number;
   paymentMethod: PaymentMethod;
   gcashReference?: string | null;
   gcashScreenshotLocalUri?: string | null;

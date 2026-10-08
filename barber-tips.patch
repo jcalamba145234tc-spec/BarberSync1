@@ -1,0 +1,362 @@
+diff --git a/app/(admin)/transaction-entry.tsx b/app/(admin)/transaction-entry.tsx
+index e60178b..e65d7cc 100644
+--- a/app/(admin)/transaction-entry.tsx
++++ b/app/(admin)/transaction-entry.tsx
+@@ -22,7 +22,9 @@ export default function AdminTransactionEntry() {
+             setMessage(
+               `Saved ${transaction.serviceName} · ${formatCurrency(transaction.amount)} (shop ${formatCurrency(
+                 transaction.shopShare
+-              )} / barber ${formatCurrency(transaction.barberShare)})`
++              )} / barber ${formatCurrency(transaction.barberShare)})${
++                transaction.tip ? ` + ${formatCurrency(transaction.tip)} tip` : ''
++              }`
+             );
+             setTimeout(() => router.push('/(admin)/transactions'), 900);
+           }}
+diff --git a/app/(barber)/dashboard.tsx b/app/(barber)/dashboard.tsx
+index b166790..45864c3 100644
+--- a/app/(barber)/dashboard.tsx
++++ b/app/(barber)/dashboard.tsx
+@@ -47,6 +47,7 @@ export default function BarberDashboard() {
+     [transactions, today]
+   );
+   const todayEarnings = useMemo(() => sum(todays.map((t) => t.barberShare)), [todays]);
++  const todayTips = useMemo(() => sum(todays.map((t) => t.tip ?? 0)), [todays]);
+   const periodEarnings = useMemo(
+     () => sum(transactions.filter((t) => t.status !== 'CANCELLED').map((t) => t.barberShare)),
+     [transactions]
+@@ -61,7 +62,10 @@ export default function BarberDashboard() {
+         <Text variant="bodySmall" style={styles.muted}>{formatDate(new Date())}</Text>
+ 
+         <StatGrid>
+-          <StatCard label="Today's commission" value={formatCurrency(todayEarnings)} tone="success" />
++          <StatCard label="Today's commission" value={formatCurrency(todayEarnings)}
++            tone="success"
++            hint={todayTips > 0 ? `+ ${formatCurrency(todayTips)} in tips` : undefined}
++          />
+           <StatCard label="Services today" value={String(todays.length)} />
+           <StatCard label="This pay period" value={formatCurrency(periodEarnings)} tone="accent" hint="Month to date" />
+           <StatCard label="Customers waiting" value={String(activeQueue.length)} />
+@@ -98,6 +102,7 @@ export default function BarberDashboard() {
+                 footer={
+                   <Text variant="bodySmall" style={styles.commission}>
+                     Your commission: {formatCurrency(transaction.barberShare)}
++                    {transaction.tip ? `  ·  Tip: ${formatCurrency(transaction.tip)}` : ''}
+                   </Text>
+                 }
+               />
+diff --git a/app/(barber)/earnings.tsx b/app/(barber)/earnings.tsx
+index 4f259b5..93f9003 100644
+--- a/app/(barber)/earnings.tsx
++++ b/app/(barber)/earnings.tsx
+@@ -32,6 +32,7 @@ export default function BarberEarnings() {
+ 
+   const completed = useMemo(() => transactions.filter((t) => t.status !== 'CANCELLED'), [transactions]);
+   const earnings = useMemo(() => sum(completed.map((t) => t.barberShare)), [completed]);
++  const tips = useMemo(() => sum(completed.map((t) => t.tip ?? 0)), [completed]);
+   const cash = useMemo(
+     () => sum(completed.filter((t) => t.paymentMethod === 'CASH').map((t) => t.barberShare)),
+     [completed]
+@@ -65,7 +66,10 @@ export default function BarberEarnings() {
+       />
+ 
+       <StatGrid>
+-        <StatCard label={`${range.label} earnings`} value={formatCurrency(earnings)} tone="success" />
++        <StatCard label={`${range.label} earnings`} value={formatCurrency(earnings)}
++          tone="success"
++          hint={tips > 0 ? `+ ${formatCurrency(tips)} in tips` : undefined}
++        />
+         <StatCard label="Services" value={String(completed.length)} />
+         <StatCard label="From cash" value={formatCurrency(cash)} />
+         <StatCard label="From GCash" value={formatCurrency(gcash)} />
+diff --git a/components/barbers/BarberDetailsDialog.tsx b/components/barbers/BarberDetailsDialog.tsx
+index 954a81e..53cea6a 100644
+--- a/components/barbers/BarberDetailsDialog.tsx
++++ b/components/barbers/BarberDetailsDialog.tsx
+@@ -245,6 +245,7 @@ export function BarberDetailsDialog({
+                       </Text>
+                       <Text variant="bodySmall" style={styles.txShare}>
+                         Earned: {formatCurrency(tx.barberShare)}
++                        {tx.tip ? ` + ${formatCurrency(tx.tip)} tip` : ''}
+                       </Text>
+                     </View>
+                   </View>
+diff --git a/components/reports/ReportSummary.tsx b/components/reports/ReportSummary.tsx
+index a025d00..2b69bd9 100644
+--- a/components/reports/ReportSummary.tsx
++++ b/components/reports/ReportSummary.tsx
+@@ -28,6 +28,7 @@ export function ReportSummary({ report }: { report: FinancialReport }) {
+       <Row label="Gross Revenue" value={formatCurrency(report.grossRevenue)} />
+       <Row label="Shop Share" value={formatCurrency(report.shopShare)} />
+       <Row label="Barber Share (payout)" value={formatCurrency(report.barberShare)} />
++      <Row label="Tips (100% to barbers)" value={formatCurrency(report.tips)} />
+       <Divider style={styles.divider} />
+       <Row label="Cash Revenue" value={formatCurrency(report.cashRevenue)} />
+       <Row label="GCash Revenue" value={formatCurrency(report.gcashRevenue)} />
+diff --git a/components/transactions/TransactionCard.tsx b/components/transactions/TransactionCard.tsx
+index e144506..d8c79fb 100644
+--- a/components/transactions/TransactionCard.tsx
++++ b/components/transactions/TransactionCard.tsx
+@@ -60,6 +60,12 @@ export function TransactionCard({ transaction, showSplit = true, footer }: Trans
+         </View>
+       )}
+ 
++      {!!transaction.tip && transaction.tip > 0 && (
++        <Text variant="bodySmall" style={styles.tip}>
++          Tip: {formatCurrency(transaction.tip)} (to barber)
++        </Text>
++      )}
++
+       {!!transaction.gcashReference && (
+         <Text variant="bodySmall" style={styles.muted}>
+           GCash ref: {transaction.gcashReference}
+@@ -89,5 +95,6 @@ const styles = StyleSheet.create({
+   badges: { gap: 4, alignItems: 'flex-end' },
+   splitRow: { flexDirection: 'row', gap: 14, flexWrap: 'wrap' },
+   split: { color: Colors.textMuted, fontWeight: '600' },
++  tip: { color: Colors.success, fontWeight: '700' },
+   unsynced: { color: Colors.warning, fontWeight: '700' },
+ });
+diff --git a/components/transactions/TransactionEntryForm.tsx b/components/transactions/TransactionEntryForm.tsx
+index 56eb635..0d99c0a 100644
+--- a/components/transactions/TransactionEntryForm.tsx
++++ b/components/transactions/TransactionEntryForm.tsx
+@@ -35,6 +35,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+   const [barberId, setBarberId] = useState(lockBarberToCurrentUser ? user?.id ?? '' : '');
+   const [serviceId, setServiceId] = useState('');
+   const [amount, setAmount] = useState('');
++  const [tip, setTip] = useState('');
+   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
+   const [gcashReference, setGcashReference] = useState('');
+   const [screenshotUri, setScreenshotUri] = useState<string | null>(null);
+@@ -50,6 +51,8 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+     settings.shopPercentage
+   );
+ 
++  const numericTip = tip.trim() ? parseAmount(tip) : 0;
++
+   const selectService = (id: string, price: number) => {
+     setServiceId(id);
+     setAmount(String(price));
+@@ -91,6 +94,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+     setCustomerName('');
+     setServiceId('');
+     setAmount('');
++    setTip('');
+     setPaymentMethod('');
+     setGcashReference('');
+     setScreenshotUri(null);
+@@ -106,6 +110,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+       barberId,
+       serviceId,
+       amount,
++      tip,
+       paymentMethod,
+       gcashReference,
+     });
+@@ -135,6 +140,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+           serviceId: service.id,
+           serviceName: service.name,
+           amount: numericAmount,
++          tip: numericTip,
+           paymentMethod: paymentMethod as PaymentMethod,
+           gcashReference,
+           gcashScreenshotLocalUri: screenshotUri,
+@@ -241,6 +247,30 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+         )}
+       </SectionCard>
+ 
++      <SectionCard title="Tip (optional)" subtitle="Goes 100% to the barber. It is not split with the shop.">
++        <View style={styles.chips}>
++          {['20', '50', '100'].map((value) => (
++            <Chip
++              key={value}
++              selected={tip === value}
++              showSelectedCheck
++              onPress={() => setTip(tip === value ? '' : value)}
++            >
++              {formatCurrency(Number(value))}
++            </Chip>
++          ))}
++        </View>
++        <TextInput
++          label="Tip amount (₱)"
++          mode="outlined"
++          keyboardType="numeric"
++          value={tip}
++          onChangeText={setTip}
++          style={styles.tipInput}
++        />
++        <HelperText type="error" visible={!!errors.tip}>{errors.tip}</HelperText>
++      </SectionCard>
++
+       <SectionCard title="Revenue split" subtitle="Calculated automatically from shop settings.">
+         <View style={styles.splitRow}>
+           <View style={styles.splitBox}>
+@@ -252,6 +282,12 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+             <Text variant="titleMedium" style={styles.splitValue}>{formatCurrency(preview.barberShare)}</Text>
+           </View>
+         </View>
++        {!Number.isNaN(numericTip) && numericTip > 0 && (
++          <Text variant="bodySmall" style={styles.muted}>
++            Barber receives {formatCurrency(preview.barberShare)} commission + {formatCurrency(numericTip)} tip ={' '}
++            {formatCurrency(preview.barberShare + numericTip)}
++          </Text>
++        )}
+       </SectionCard>
+ 
+       {!!saveError && (
+@@ -278,6 +314,7 @@ export function TransactionEntryForm({ lockBarberToCurrentUser, onSaved }: Trans
+ const styles = StyleSheet.create({
+   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+   gcash: { gap: 6, marginTop: 6 },
++  tipInput: { marginTop: 8 },
+   preview: { width: '100%', height: 180, borderRadius: 12, resizeMode: 'cover' },
+   muted: { color: Colors.textMuted },
+   splitRow: { flexDirection: 'row', gap: 10 },
+diff --git a/firestore.rules b/firestore.rules
+index 44cedb9..0937a65 100644
+--- a/firestore.rules
++++ b/firestore.rules
+@@ -52,6 +52,7 @@ service cloud.firestore {
+         && data.barberShare is number
+         && data.shopShare >= 0
+         && data.barberShare >= 0
++        && (!('tip' in data) || (data.tip is number && data.tip >= 0 && data.tip <= 100000))
+         && math.abs(data.shopShare + data.barberShare - data.amount) < 0.01
+         && math.abs(data.shopShare - expectedShop) < 0.01;
+     }
+diff --git a/services/transactionService.ts b/services/transactionService.ts
+index 721fe35..2b08489 100644
+--- a/services/transactionService.ts
++++ b/services/transactionService.ts
+@@ -21,7 +21,7 @@ import {
+   TransactionInput,
+   TransactionStatus,
+ } from '../types/transaction';
+-import { calculateRevenueSplit, resolveSplitPercentage } from '../utils/calculations';
++import { calculateRevenueSplit, resolveSplitPercentage, round2 } from '../utils/calculations';
+ import { isWithinRange } from '../utils/dateUtils';
+ import { firestore } from './firebase';
+ import { createLocalId, readJson, writeJson } from './localStore';
+@@ -79,6 +79,7 @@ export function buildTransaction(input: TransactionInput, settings: ShopSettings
+     amount: input.amount,
+     shopShare,
+     barberShare,
++    tip: input.tip && Number.isFinite(input.tip) && input.tip > 0 ? round2(input.tip) : 0,
+     paymentMethod: input.paymentMethod,
+     gcashReference: isGcash ? (input.gcashReference ?? '').trim() || null : null,
+     gcashScreenshotUrl: null,
+diff --git a/types/report.ts b/types/report.ts
+index 1dc0170..337b03a 100644
+--- a/types/report.ts
++++ b/types/report.ts
+@@ -25,6 +25,8 @@ export interface FinancialReport {
+   grossRevenue: number;
+   shopShare: number;
+   barberShare: number;
++  /** Total tips (100% to barbers). Not part of grossRevenue, shopShare or barberShare. */
++  tips: number;
+   cashRevenue: number;
+   gcashRevenue: number;
+   transactionCount: number;
+diff --git a/types/transaction.ts b/types/transaction.ts
+index a5aeedd..59fc34d 100644
+--- a/types/transaction.ts
++++ b/types/transaction.ts
+@@ -17,6 +17,8 @@ export interface Transaction {
+   amount: number;
+   shopShare: number;
+   barberShare: number;
++  /** Optional tip recorded by the owner. Goes 100% to the barber; not part of shop revenue or the split. Missing on older records (treat as 0). */
++  tip?: number;
+   paymentMethod: PaymentMethod;
+   gcashReference: string | null;
+   gcashScreenshotUrl: string | null;
+@@ -39,6 +41,7 @@ export interface TransactionInput {
+   serviceId: string;
+   serviceName: string;
+   amount: number;
++  tip?: number;
+   paymentMethod: PaymentMethod;
+   gcashReference?: string | null;
+   gcashScreenshotLocalUri?: string | null;
+diff --git a/utils/calculations.ts b/utils/calculations.ts
+index f2e45f7..2e9f4d5 100644
+--- a/utils/calculations.ts
++++ b/utils/calculations.ts
+@@ -86,6 +86,7 @@ export function buildFinancialReport(
+   const grossRevenue = sum(completed.map((t) => t.amount));
+   const shopShare = sum(completed.map((t) => t.shopShare));
+   const barberShare = sum(completed.map((t) => t.barberShare));
++  const tips = sum(completed.map((t) => t.tip ?? 0));
+   const cashRevenue = sum(completed.filter((t) => t.paymentMethod === 'CASH').map((t) => t.amount));
+   const gcashRevenue = sum(completed.filter((t) => t.paymentMethod === 'GCASH').map((t) => t.amount));
+   const expenseTotal = sum(expenses.map((e) => e.amount));
+@@ -95,6 +96,7 @@ export function buildFinancialReport(
+     grossRevenue,
+     shopShare,
+     barberShare,
++    tips,
+     cashRevenue,
+     gcashRevenue,
+     transactionCount: completed.length,
+diff --git a/utils/csvExport.ts b/utils/csvExport.ts
+index fe38260..e3121cc 100644
+--- a/utils/csvExport.ts
++++ b/utils/csvExport.ts
+@@ -12,6 +12,7 @@ const HEADERS = [
+   'Amount',
+   'Shop Share',
+   'Barber Share',
++  'Tip',
+   'Payment Method',
+   'GCash Reference',
+   'Status',
+@@ -36,6 +37,7 @@ export function buildTransactionsCsv(transactions: Transaction[]): string {
+       t.amount.toFixed(2),
+       t.shopShare.toFixed(2),
+       t.barberShare.toFixed(2),
++      (t.tip ?? 0).toFixed(2),
+       t.paymentMethod,
+       t.gcashReference ?? '',
+       t.status,
+diff --git a/utils/pdfExport.ts b/utils/pdfExport.ts
+index bfef9e1..373ec43 100644
+--- a/utils/pdfExport.ts
++++ b/utils/pdfExport.ts
+@@ -160,6 +160,7 @@ export function buildReportHtml(
+         <tr><td>Gross revenue</td><td class="num">${escapeHtml(formatCurrency(report.grossRevenue))}</td></tr>
+         <tr><td>Shop share</td><td class="num">${escapeHtml(formatCurrency(report.shopShare))}</td></tr>
+         <tr><td>Barber share (payout)</td><td class="num">${escapeHtml(formatCurrency(report.barberShare))}</td></tr>
++        <tr><td>Tips (100% to barbers, not in revenue)</td><td class="num">${escapeHtml(formatCurrency(report.tips))}</td></tr>
+         <tr class="subtotal"><td>Cash revenue</td><td class="num">${escapeHtml(formatCurrency(report.cashRevenue))}</td></tr>
+         <tr><td>GCash revenue</td><td class="num">${escapeHtml(formatCurrency(report.gcashRevenue))}</td></tr>
+         <tr><td>Completed transactions</td><td class="num">${report.transactionCount.toLocaleString('en-PH')}</td></tr>
+diff --git a/utils/validation.ts b/utils/validation.ts
+index c20ae9a..930484d 100644
+--- a/utils/validation.ts
++++ b/utils/validation.ts
+@@ -15,6 +15,8 @@ export interface TransactionFormValues {
+   barberId: string;
+   serviceId: string;
+   amount: string;
++  /** Optional; blank means no tip. */
++  tip?: string;
+   paymentMethod: PaymentMethod | '';
+   gcashReference: string;
+ }
+@@ -48,6 +50,13 @@ export function validateTransaction(values: TransactionFormValues): ValidationRe
+   else if (Number.isNaN(amount)) errors.amount = 'Amount must be a number.';
+   else if (amount <= 0) errors.amount = 'Amount must be greater than 0.';
+ 
++  if (values.tip && values.tip.trim()) {
++    const tip = parseAmount(values.tip);
++    if (Number.isNaN(tip)) errors.tip = 'Tip must be a number.';
++    else if (tip < 0) errors.tip = 'Tip cannot be negative.';
++    else if (tip > 100000) errors.tip = 'That tip looks too large. Check the amount.';
++  }
++
+   if (!values.paymentMethod) errors.paymentMethod = 'Choose Cash or GCash.';
+   if (values.paymentMethod === 'GCASH') {
+     const reference = values.gcashReference.trim();

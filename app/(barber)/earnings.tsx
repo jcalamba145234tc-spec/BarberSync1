@@ -32,6 +32,7 @@ export default function BarberEarnings() {
 
   const completed = useMemo(() => transactions.filter((t) => t.status !== 'CANCELLED'), [transactions]);
   const earnings = useMemo(() => sum(completed.map((t) => t.barberShare)), [completed]);
+  const tips = useMemo(() => sum(completed.map((t) => t.tip ?? 0)), [completed]);
   const cash = useMemo(
     () => sum(completed.filter((t) => t.paymentMethod === 'CASH').map((t) => t.barberShare)),
     [completed]
@@ -65,7 +66,10 @@ export default function BarberEarnings() {
       />
 
       <StatGrid>
-        <StatCard label={`${range.label} earnings`} value={formatCurrency(earnings)} tone="success" />
+        <StatCard label={`${range.label} earnings`} value={formatCurrency(earnings)}
+          tone="success"
+          hint={tips > 0 ? `+ ${formatCurrency(tips)} in tips` : undefined}
+        />
         <StatCard label="Services" value={String(completed.length)} />
         <StatCard label="From cash" value={formatCurrency(cash)} />
         <StatCard label="From GCash" value={formatCurrency(gcash)} />

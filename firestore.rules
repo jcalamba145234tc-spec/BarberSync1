@@ -52,6 +52,7 @@ service cloud.firestore {
         && data.barberShare is number
         && data.shopShare >= 0
         && data.barberShare >= 0
+        && (!('tip' in data) || (data.tip is number && data.tip >= 0 && data.tip <= 100000))
         && math.abs(data.shopShare + data.barberShare - data.amount) < 0.01
         && math.abs(data.shopShare - expectedShop) < 0.01;
     }

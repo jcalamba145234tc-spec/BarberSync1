@@ -47,6 +47,7 @@ export default function BarberDashboard() {
     [transactions, today]
   );
   const todayEarnings = useMemo(() => sum(todays.map((t) => t.barberShare)), [todays]);
+  const todayTips = useMemo(() => sum(todays.map((t) => t.tip ?? 0)), [todays]);
   const periodEarnings = useMemo(
     () => sum(transactions.filter((t) => t.status !== 'CANCELLED').map((t) => t.barberShare)),
     [transactions]
@@ -61,7 +62,10 @@ export default function BarberDashboard() {
         <Text variant="bodySmall" style={styles.muted}>{formatDate(new Date())}</Text>
 
         <StatGrid>
-          <StatCard label="Today's commission" value={formatCurrency(todayEarnings)} tone="success" />
+          <StatCard label="Today's commission" value={formatCurrency(todayEarnings)}
+            tone="success"
+            hint={todayTips > 0 ? `+ ${formatCurrency(todayTips)} in tips` : undefined}
+          />
           <StatCard label="Services today" value={String(todays.length)} />
           <StatCard label="This pay period" value={formatCurrency(periodEarnings)} tone="accent" hint="Month to date" />
           <StatCard label="Customers waiting" value={String(activeQueue.length)} />
@@ -98,6 +102,7 @@ export default function BarberDashboard() {
                 footer={
                   <Text variant="bodySmall" style={styles.commission}>
                     Your commission: {formatCurrency(transaction.barberShare)}
+                    {transaction.tip ? `  ·  Tip: ${formatCurrency(transaction.tip)}` : ''}
                   </Text>
                 }
               />

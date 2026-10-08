@@ -60,6 +60,12 @@ export function TransactionCard({ transaction, showSplit = true, footer }: Trans
         </View>
       )}
 
+      {!!transaction.tip && transaction.tip > 0 && (
+        <Text variant="bodySmall" style={styles.tip}>
+          Tip: {formatCurrency(transaction.tip)} (to barber)
+        </Text>
+      )}
+
       {!!transaction.gcashReference && (
         <Text variant="bodySmall" style={styles.muted}>
           GCash ref: {transaction.gcashReference}
@@ -89,5 +95,6 @@ const styles = StyleSheet.create({
   badges: { gap: 4, alignItems: 'flex-end' },
   splitRow: { flexDirection: 'row', gap: 14, flexWrap: 'wrap' },
   split: { color: Colors.textMuted, fontWeight: '600' },
+  tip: { color: Colors.success, fontWeight: '700' },
   unsynced: { color: Colors.warning, fontWeight: '700' },
 });

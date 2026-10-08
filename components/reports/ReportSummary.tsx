@@ -28,6 +28,7 @@ export function ReportSummary({ report }: { report: FinancialReport }) {
       <Row label="Gross Revenue" value={formatCurrency(report.grossRevenue)} />
       <Row label="Shop Share" value={formatCurrency(report.shopShare)} />
       <Row label="Barber Share (payout)" value={formatCurrency(report.barberShare)} />
+      <Row label="Tips (100% to barbers)" value={formatCurrency(report.tips)} />
       <Divider style={styles.divider} />
       <Row label="Cash Revenue" value={formatCurrency(report.cashRevenue)} />
       <Row label="GCash Revenue" value={formatCurrency(report.gcashRevenue)} />

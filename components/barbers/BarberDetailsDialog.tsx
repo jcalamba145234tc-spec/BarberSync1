@@ -245,6 +245,7 @@ export function BarberDetailsDialog({
                       </Text>
                       <Text variant="bodySmall" style={styles.txShare}>
                         Earned: {formatCurrency(tx.barberShare)}
+                        {tx.tip ? ` + ${formatCurrency(tx.tip)} tip` : ''}
                       </Text>
                     </View>
                   </View>
