@@ -87,10 +87,17 @@ service cloud.firestore {
 
     // ---------- queue ----------
     match /queue/{queueId} {
-      // Barbers can only view the queue. The admin/owner adds customers and
-      // moves them through the line.
+      // The admin/owner adds customers, completes (records payment) and cancels.
+      // A barber can only Call and Start their OWN customers: WAITING/CALLED ->
+      // CALLED/IN_SERVICE, touching nothing but status and startedAt.
       allow read: if isAdmin() || isBarber();
-      allow create, update, delete: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (isBarber()
+            && resource.data.barberId == request.auth.uid
+            && resource.data.status in ['WAITING', 'CALLED']
+            && request.resource.data.status in ['CALLED', 'IN_SERVICE']
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'startedAt']));
     }
 
     // ---------- expenses (admin only) ----------

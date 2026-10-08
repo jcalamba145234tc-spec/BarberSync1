@@ -28,13 +28,15 @@ import { QueueCard } from './QueueCard';
 
 /**
  * Shared by the admin and barber queue tabs. The admin/owner manages the
- * queue (add, call, start, complete + payment, cancel). Barbers get a
- * read-only view of their waiting customers: no add, no status changes.
+ * queue (add, call, start, complete + payment, cancel). Barbers see their own
+ * waiting customers and can only Call and Start them; they cannot add
+ * customers, complete a service (payment) or cancel.
  */
 export function QueueBoard() {
   const { services, barbers, settings } = useAppData();
   const { user } = useAuth();
   const isBarberPortal = user?.role === 'BARBER';
+  // Barbers can't add customers or complete/cancel; they only Call/Start.
   const readOnly = isBarberPortal;
   const { unavailable } = useBarberAvailability();
   const { queue, loading, busyId, refresh, add, setStatus } = useQueue(
@@ -287,7 +289,7 @@ export function QueueBoard() {
                 key={entry.id}
                 entry={entry}
                 position={index + 1}
-                readOnly={readOnly}
+                limited={isBarberPortal}
                 busy={busyId === entry.id}
                 onStatusChange={(status) => setStatus(entry.id, status)}
                 onComplete={() => openPayment(entry)}

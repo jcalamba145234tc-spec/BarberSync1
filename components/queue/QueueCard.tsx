@@ -16,8 +16,13 @@ interface QueueCardProps {
   busy?: boolean;
   /** Required unless readOnly. */
   onStatusChange?: (status: QueueStatus) => void;
-  /** View-only (barbers): hides every action button. */
+  /** View-only: hides every action button (dashboard previews). */
   readOnly?: boolean;
+  /**
+   * Barber mode: only Call and Start are shown. Complete (which records the
+   * payment) and Cancel stay with the admin/owner.
+   */
+  limited?: boolean;
   /**
    * Opens the payment dialog instead of silently closing the entry.
    * When omitted (read-only previews such as the dashboard) the Complete
@@ -32,7 +37,7 @@ function waitLabel(entry: QueueEntry): string {
   return ' - Est. wait: ' + entry.estimatedWaitTime + ' min';
 }
 
-export function QueueCard({ entry, position, busy = false, onStatusChange, onComplete, readOnly }: QueueCardProps) {
+export function QueueCard({ entry, position, busy = false, onStatusChange, onComplete, readOnly, limited }: QueueCardProps) {
   const change = (status: QueueStatus) => onStatusChange?.(status);
   return (
     <View style={styles.card}>
@@ -68,11 +73,12 @@ export function QueueCard({ entry, position, busy = false, onStatusChange, onCom
             Start
           </Button>
         )}
-        {entry.status === 'IN_SERVICE' && onComplete && (
+        {!limited && entry.status === 'IN_SERVICE' && onComplete && (
           <Button mode="contained" icon="cash" compact disabled={busy} onPress={onComplete}>
             Complete
           </Button>
         )}
+        {!limited && (
         <Button
           mode="text"
           compact
@@ -82,6 +88,12 @@ export function QueueCard({ entry, position, busy = false, onStatusChange, onCom
         >
           Cancel
         </Button>
+        )}
+        {limited && entry.status === 'IN_SERVICE' && (
+          <Text variant="bodySmall" style={styles.muted}>
+            In service. The owner marks it complete.
+          </Text>
+        )}
       </View>
       )}
     </View>
