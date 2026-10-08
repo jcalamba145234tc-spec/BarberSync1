@@ -5,6 +5,7 @@
  * local-only demo mode instead (see services/demoData.ts).
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { Auth, getAuth, initializeAuth, type Persistence } from 'firebase/auth';
 import { Firestore, initializeFirestore } from 'firebase/firestore';
@@ -39,7 +40,9 @@ export const isFirebaseConfigured: boolean = Boolean(
 /**
  * Firebase exposes getReactNativePersistence only in its React Native build and the
  * export is missing from some type definitions, so it is resolved defensively.
- * Without it, Auth falls back to memory persistence.
+ * Native only: the web build has no such export (and does not need it, because
+ * getAuth() persists to the browser by itself). Without it on native, Auth falls
+ * back to memory persistence.
  */
 function reactNativePersistence(): { persistence: Persistence } | null {
   try {
@@ -61,12 +64,27 @@ let dbInstance: Firestore | null = null;
 if (isFirebaseConfigured) {
   try {
     app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-    try {
-      // Keeps the Firebase session signed in between app restarts.
-      authInstance = initializeAuth(app, reactNativePersistence() ?? undefined);
-    } catch {
-      // initializeAuth throws if it already ran (e.g. after a fast refresh).
+    if (Platform.OS === 'web') {
+      // Browser build: getAuth() already persists the session (IndexedDB, then
+      // localStorage), so a page reload keeps the user signed in. Calling
+      // initializeAuth() with no persistence here would silently fall back to
+      // memory-only and sign everyone out on every reload.
       authInstance = getAuth(app);
+    } else {
+      const nativePersistence = reactNativePersistence();
+      if (!nativePersistence) {
+        // Not silent any more: without this, every app restart signs the user out.
+        console.warn(
+          '[BarberSync] React Native auth persistence is unavailable - the session will not survive an app restart.'
+        );
+      }
+      try {
+        // Keeps the Firebase session signed in between app restarts (AsyncStorage).
+        authInstance = initializeAuth(app, nativePersistence ?? undefined);
+      } catch {
+        // initializeAuth throws if it already ran (e.g. after a fast refresh).
+        authInstance = getAuth(app);
+      }
     }
     dbInstance = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
   } catch (error) {
