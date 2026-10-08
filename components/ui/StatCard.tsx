@@ -28,7 +28,13 @@ export function StatCard({ label, value, hint, tone = 'default' }: StatCardProps
       <Text variant="labelSmall" style={styles.label}>
         {label.toUpperCase()}
       </Text>
-      <Text variant="titleLarge" style={[styles.value, { color: TONES[tone] }]} numberOfLines={1}>
+      <Text
+        variant="titleLarge"
+        style={[styles.value, { color: TONES[tone] }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.6}
+      >
         {value}
       </Text>
       {!!hint && (
@@ -48,7 +54,8 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   card: {
     flexGrow: 1,
-    flexBasis: '47%',
+    flexBasis: '45%',
+    minWidth: 0,
     backgroundColor: Colors.surface,
     borderRadius: 16,
     padding: 14,

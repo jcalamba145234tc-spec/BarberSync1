@@ -62,6 +62,7 @@ export default function AdminLayout() {
           name="transactions"
           options={{
             title: 'Transactions',
+            tabBarLabel: 'Sales',
             tabBarIcon: icon('cash-register'),
           }}
         />

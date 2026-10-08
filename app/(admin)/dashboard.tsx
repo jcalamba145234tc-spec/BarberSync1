@@ -2,11 +2,12 @@
  * Admin home screen: today's key numbers plus the quick-action shortcuts and
  * barber performance table for the current period.
  */
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { Button, FAB, Text } from 'react-native-paper';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { BarberPerformanceTable } from '../../components/dashboard/BarberPerformanceTable';
+import { TopBarbersList } from '../../components/dashboard/TopBarbersList';
 import { QuickActions } from '../../components/dashboard/QuickActions';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingState } from '../../components/ui/LoadingState';
@@ -19,14 +20,24 @@ import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useQueue } from '../../hooks/useQueue';
 import { useTransactions } from '../../hooks/useTransactions';
+import { calculateAttendanceSummary, getDailyAttendance } from '../../services/attendanceService';
 import { notifyEndOfDaySummary } from '../../services/notificationService';
+import { AttendanceSummary } from '../../types/attendance';
 import { buildFinancialReport, formatCurrency } from '../../utils/calculations';
 import { buildRange, formatDate, isWithinRange } from '../../utils/dateUtils';
+
+/** Local-time YYYY-MM-DD, the same id format the attendance screen saves under. */
+function todayId(): string {
+  const d = new Date();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${month}-${day}`;
+}
 
 export default function AdminDashboard() {
   const router = useRouter();
   const { user } = useAuth();
-  const { settings, services } = useAppData();
+  const { settings, services, barbers } = useAppData();
   const today = useMemo(() => buildRange('TODAY'), []);
   const month = useMemo(() => buildRange('MONTH'), []);
   const { transactions, loading, refresh } = useTransactions({ from: month.from, to: month.to });
@@ -34,10 +45,25 @@ export default function AdminDashboard() {
   // always agree (it reloads whenever this screen gains focus).
   const { activeQueue } = useQueue(services);
 
+  // Real attendance for today (this used to be hardcoded 3 / 1 / 4).
+  const [attendance, setAttendance] = useState<AttendanceSummary | null>(null);
+  const [attendanceSaved, setAttendanceSaved] = useState(false);
+
+  const loadAttendance = useCallback(async () => {
+    try {
+      const day = await getDailyAttendance(todayId(), barbers);
+      setAttendance(calculateAttendanceSummary(day.records));
+      setAttendanceSaved(!day.draft);
+    } catch (error) {
+      console.warn('[BarberSync] Could not load today\'s attendance for the dashboard.', error);
+    }
+  }, [barbers]);
+
   useFocusEffect(
     React.useCallback(() => {
       refresh();
-    }, [refresh])
+      loadAttendance();
+    }, [refresh, loadAttendance])
   );
 
   const todays = useMemo(
@@ -90,64 +116,52 @@ export default function AdminDashboard() {
           <QuickActions
             actions={[
               { label: 'New Transaction', icon: 'plus', href: '/(admin)/transaction-entry' },
-              { label: 'Queue', icon: 'account-clock', href: '/(admin)/queue' },
-              { label: 'Barbers', icon: 'account-tie', href: '/(admin)/barbers' },
-              { label: 'Reports', icon: 'chart-box', href: '/(admin)/reports' },
+              { label: 'Attendance', icon: 'calendar-check', href: '/(admin)/attendance' },
               { label: 'Services', icon: 'content-cut', href: '/(admin)/services' },
               { label: 'Expenses', icon: 'cash-minus', href: '/(admin)/expenses' },
               { label: 'Revenue Split', icon: 'call-split', href: '/(admin)/revenue-split' },
-              { label: 'Attendance', icon: 'calendar-check', href: '/(admin)/attendance' },
+              { label: 'Reports', icon: 'chart-box', href: '/(admin)/reports' },
             ]}
           />
         </SectionCard>
 
-        <SectionCard title="Attendance Overview" subtitle="Today's barber attendance">
+        <SectionCard
+          title="Today's attendance"
+          subtitle={
+            attendance === null
+              ? 'Loading…'
+              : attendanceSaved
+              ? `${attendance.total} barber${attendance.total === 1 ? '' : 's'} on the roster`
+              : 'Not saved yet today'
+          }
+          right={
+            <Button compact onPress={() => router.push('/(admin)/attendance')}>
+              Manage
+            </Button>
+          }
+        >
           <StatGrid>
-            <StatCard label="Present" value="3" tone="success" />
-            <StatCard label="Absent" value="1" tone="warning" />
-            <StatCard label="Total Barbers" value="4" />
+            <StatCard label="Present" value={String(attendance?.present ?? 0)} tone="success" />
+            <StatCard label="Late" value={String(attendance?.late ?? 0)} tone="warning" />
+            <StatCard label="Absent" value={String(attendance?.absent ?? 0)} tone="danger" />
+            <StatCard label="Day off" value={String(attendance?.off ?? 0)} />
           </StatGrid>
-
-          <Button
-            mode="contained-tonal"
-            icon="calendar-check"
-            onPress={() => router.push('/(admin)/attendance')}
-          >
-            Manage Attendance
-          </Button>
         </SectionCard>
 
         <SectionCard
           title="Barber performance"
-          subtitle="Today · admin only"
+          subtitle="Today"
           right={
             <Button compact onPress={() => router.push('/(admin)/barbers')}>
-              All
+              View all
             </Button>
           }
         >
           <BarberPerformanceTable rows={todayReport.barbers} />
-          <SectionCard title="Top Barbers This Month" subtitle="Ranked by customers served">
-            {topBarbers.length === 0 ? (
-              <EmptyState
-                icon="💈"
-                title="No completed services this month"
-                message="Top barbers will appear after completed transactions are recorded."
-              />
-            ) : (
-              <StatGrid>
-                {topBarbers.map((barber, index) => (
-                  <StatCard
-                    key={barber.barberId}
-                    label={`#${index + 1} ${barber.barberName}`}
-                    value={`${barber.serviceCount} ${barber.serviceCount === 1 ? 'Customer' : 'Customers'}`}
-                    hint={formatCurrency(barber.revenue)}
-                    tone={index === 0 ? 'success' : index === 1 ? 'accent' : 'default'}
-                  />
-                ))}
-              </StatGrid>
-            )}
-          </SectionCard>
+        </SectionCard>
+
+        <SectionCard title="Top barbers this month" subtitle="Ranked by customers served">
+          <TopBarbersList rows={topBarbers} />
         </SectionCard>
 
         {pendingGcash.length > 0 && (
@@ -185,11 +199,11 @@ export default function AdminDashboard() {
         >
           Send end-of-day summary
         </Button>
-      </Screen >
+      </Screen>
 
       <FAB
         icon="plus"
-        label="Transaction"
+        accessibilityLabel="New transaction"
         style={styles.fab}
         onPress={() => router.push('/(admin)/transaction-entry')}
       />
@@ -200,5 +214,5 @@ export default function AdminDashboard() {
 const styles = StyleSheet.create({
   greeting: { fontWeight: '800', color: Colors.text },
   muted: { color: Colors.textMuted, marginBottom: 4 },
-  fab: { position: 'absolute', right: 16, bottom: 20, backgroundColor: Colors.accent },
+  fab: { position: 'absolute', right: 16, bottom: 16, backgroundColor: Colors.accent },
 });

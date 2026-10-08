@@ -19,7 +19,7 @@ export function BarberPerformanceTable({ rows }: { rows: BarberPerformance[] }) 
     <View style={styles.table}>
       <View style={[styles.row, styles.headerRow]}>
         <Text variant="labelSmall" style={[styles.cell, styles.nameCell, styles.headerText]}>BARBER</Text>
-        <Text variant="labelSmall" style={[styles.cell, styles.headerText, styles.num]}>CUSTOMERS</Text>
+        <Text variant="labelSmall" style={[styles.cell, styles.headerText, styles.num]}>CLIENTS</Text>
         <Text variant="labelSmall" style={[styles.cell, styles.headerText, styles.num]}>REVENUE</Text>
         <Text variant="labelSmall" style={[styles.cell, styles.headerText, styles.num]}>EARNINGS</Text>
       </View>
@@ -44,7 +44,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7 },
   headerRow: { borderBottomWidth: 1, borderBottomColor: Colors.border },
   cell: { flex: 1, color: Colors.text },
-  nameCell: { flex: 1.6 },
+  nameCell: { flex: 1.8 },
   headerText: { color: Colors.textMuted, letterSpacing: 0.5 },
   name: { fontWeight: '700' },
   num: { textAlign: 'right' },
