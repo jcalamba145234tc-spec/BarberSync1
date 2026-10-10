@@ -58,10 +58,10 @@ async function cache(barbers: AppUser[]): Promise<void> {
  * Retrieves all barbers. Admin management screens pass includeInactive = true
  * so they can reactivate or update staff.
  */
-export async function getBarbers(includeInactive = false): Promise<AppUser[]> {
+export async function getBarbers(includeInactive = false, cacheOnly = false): Promise<AppUser[]> {
   let barbers: AppUser[] = [];
 
-  if (firestore && (await isOnline())) {
+  if (!cacheOnly && firestore && (await isOnline())) {
     try {
       const q = query(collection(firestore, COLLECTIONS.users), where('role', '==', 'BARBER'));
       const snapshot = await getDocs(q);

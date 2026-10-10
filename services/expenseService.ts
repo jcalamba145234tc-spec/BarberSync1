@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDocs, query, where, setDoc } from 'firebase/firestore';
 import { COLLECTIONS } from '../constants/config';
 import { Expense, ExpenseInput } from '../types/expense';
 import { isWithinRange } from '../utils/dateUtils';
@@ -11,7 +11,8 @@ import { enqueueOp } from './pendingOps';
  * EXPENSES: READ / WRITE PATTERN
  * -------------------------------
  * Admin-only collection (enforced in firestore.rules, not just in the UI).
- * READS are one-time getDocs() calls, cached locally on success and read
+ * This fallback helper uses getDocs(); screens use liveData.ts listeners.
+ * One-time reads are cached locally on success and read
  * back from that cache on failure or when offline - same pattern as every
  * other service in this app, so reports still show a number instead of a
  * blank screen with no connection.
@@ -24,13 +25,15 @@ async function cache(expenses: Expense[]): Promise<void> {
   await writeJson(CACHE_KEY, expenses);
 }
 
-export async function getExpenses(from?: string, to?: string): Promise<Expense[]> {
+export async function getExpenses(from?: string, to?: string, cacheOnly = false): Promise<Expense[]> {
   let expenses: Expense[] = [];
-  if (firestore && (await isOnline())) {
+  if (!cacheOnly && firestore && (await isOnline())) {
     try {
-      const snapshot = await getDocs(collection(firestore, COLLECTIONS.expenses));
+      const ref = collection(firestore, COLLECTIONS.expenses);
+      const snapshot = await getDocs(from && to ? query(ref, where('date', '>=', from), where('date', '<=', to)) : ref);
       expenses = snapshot.docs.map((d) => ({ ...(d.data() as Expense), id: d.id }));
-      await cache(expenses);
+      const old = await readJson<Expense[]>(CACHE_KEY, []);
+      await cache(from && to ? [...old.filter((e) => !isWithinRange(e.date, from, to)), ...expenses] : expenses);
     } catch (error) {
       console.warn('[BarberSync] Falling back to cached expenses.', error);
       expenses = await readJson<Expense[]>(CACHE_KEY, []);
@@ -90,4 +93,14 @@ export async function deleteExpense(id: string): Promise<void> {
 
 export async function replaceCachedExpenses(expenses: Expense[]): Promise<void> {
   await cache(expenses);
+}
+
+let liveCacheWrites: Promise<void> = Promise.resolve();
+export function cacheLiveExpenses(rows: Expense[], from?: string, to?: string): Promise<void> {
+  const write = liveCacheWrites.catch(() => {}).then(async () => {
+    const old = await readJson<Expense[]>(CACHE_KEY, []);
+    await cache(from && to ? [...old.filter((e) => !isWithinRange(e.date, from, to)), ...rows] : rows);
+  });
+  liveCacheWrites = write;
+  return write;
 }

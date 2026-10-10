@@ -1,41 +1,17 @@
-/**
- * Loads a financial report (and the transactions/expenses behind it) for a
- * given filter/date range, re-running whenever the filters change.
- */
-import { useCallback, useEffect, useState } from 'react';
-import { FinancialReport, ReportFilters, ShopSettings } from '../types/report';
-import { Transaction } from '../types/transaction';
-import { Expense } from '../types/expense';
-import { generateReport } from '../services/reportService';
+import { useCallback, useMemo } from 'react';
+import { ReportFilters, ShopSettings } from '../types/report';
+import { buildReportResult } from '../services/reportService';
+import { useTransactions } from './useTransactions';
+import { useExpenses } from './useExpenses';
 
+/** Recalculate when either source or shop settings changes, without extra reads. */
 export function useReport(filters: ReportFilters, settings: ShopSettings) {
-  const [report, setReport] = useState<FinancialReport | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
+  const tx = useTransactions({ from: filters.from, to: filters.to,
+    barberId: filters.barberId, paymentMethod: filters.paymentMethod });
+  const ex = useExpenses(filters.from, filters.to);
   const key = JSON.stringify(filters);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await generateReport(JSON.parse(key) as ReportFilters, settings);
-      setReport(result.report);
-      setTransactions(result.transactions);
-      setExpenses(result.expenses);
-    } catch (reportError) {
-      console.warn('[BarberSync] Could not build report.', reportError);
-      setError('Could not build the report. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, [key, settings]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  return { report, transactions, expenses, loading, error, refresh: load };
+  const result = useMemo(() => buildReportResult(JSON.parse(key), settings, tx.transactions, ex.expenses),
+    [key, settings, tx.transactions, ex.expenses]);
+  const refresh = useCallback(async () => { await Promise.all([tx.refresh(), ex.refresh()]); }, [tx.refresh, ex.refresh]);
+  return { ...result, loading: tx.loading || ex.loading, error: tx.error || ex.error, refresh };
 }

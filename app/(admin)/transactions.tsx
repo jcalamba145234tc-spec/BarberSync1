@@ -8,7 +8,7 @@
 import React, { useMemo, useState } from 'react';
 import { Image, Linking, StyleSheet, View } from 'react-native';
 import { Button, Chip, Dialog, Portal, SegmentedButtons, Text } from 'react-native-paper';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { AppSnackbar } from '../../components/ui/AppSnackbar';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingState } from '../../components/ui/LoadingState';
@@ -16,6 +16,7 @@ import { Screen } from '../../components/ui/Screen';
 import { SectionCard } from '../../components/ui/SectionCard';
 import { TransactionCard } from '../../components/transactions/TransactionCard';
 import { Colors } from '../../constants/colors';
+import { useCurrentDay } from '../../hooks/useCurrentDay';
 import { useAppData } from '../../context/AppDataContext';
 import { useTransactions } from '../../hooks/useTransactions';
 import { cancelTransaction, setGcashVerification } from '../../services/transactionService';
@@ -27,10 +28,11 @@ import { buildRange } from '../../utils/dateUtils';
 type PaymentFilter = 'ALL' | 'CASH' | 'GCASH';
 
 export default function AdminTransactions() {
+  const currentDay = useCurrentDay();
   const router = useRouter();
   const { barbers } = useAppData();
-  const month = useMemo(() => buildRange('MONTH'), []);
-  const { transactions, loading, refresh } = useTransactions({ from: month.from, to: month.to });
+  const month = useMemo(() => buildRange('MONTH'), [currentDay]);
+  const { transactions, loading, refresh, error: liveError } = useTransactions({ from: month.from, to: month.to });
 
   const [payment, setPayment] = useState<PaymentFilter>('ALL');
   const [barberId, setBarberId] = useState<string | null>(null);
@@ -40,7 +42,6 @@ export default function AdminTransactions() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  useFocusEffect(React.useCallback(() => { refresh(); }, [refresh]));
 
   const filtered = useMemo(
     () =>
@@ -103,6 +104,7 @@ export default function AdminTransactions() {
   return (
     <>
       <Screen refreshing={loading} onRefresh={refresh}>
+        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
         <SectionCard title="Filters" subtitle={`${filtered.length} record(s) - ${formatCurrency(total)} completed`}>
           <SegmentedButtons
             value={payment}

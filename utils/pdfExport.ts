@@ -3,6 +3,7 @@
  * PDF, then expo-sharing to let the admin save or send it.
  */
 import * as Print from 'expo-print';
+import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import { Expense } from '../types/expense';
@@ -232,12 +233,34 @@ export async function exportReportPdf(
     return null;
   }
 
-  const { uri } = await Print.printToFileAsync({ html });
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Share report' });
-    return uri;
+  // expo-print may generate its PDF outside the current app's scoped cache
+  // (notably in Expo Go). Sharing that URI directly can fail its read check.
+  // Request the bytes and write a fresh PDF into expo-file-system's app cache;
+  // no read/copy permission on the original Print URI is required.
+  const result = await Print.printToFileAsync({ html, base64: true });
+  if (!result.base64) {
+    throw new Error('PDF generation returned no file data. Please try exporting again.');
   }
 
-  await Print.printAsync({ uri });
+  const file = new File(Paths.cache,
+    `barbersync-report-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.pdf`);
+  file.create({ overwrite: true });
+  // The string is encoded PDF data, not text. Decode it when writing to disk.
+  file.write(result.base64, { encoding: 'base64' });
+  if (!file.exists || file.size <= 0) {
+    throw new Error('The PDF could not be saved to the app cache. Please try again.');
+  }
+
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(file.uri, {
+      mimeType: 'application/pdf',
+      UTI: 'com.adobe.pdf',
+      dialogTitle: 'Share report',
+    });
+    // Keep the cache file: the receiving app may read it after the sheet closes.
+    return file.uri;
+  }
+
+  await Print.printAsync({ uri: file.uri });
   return null;
 }

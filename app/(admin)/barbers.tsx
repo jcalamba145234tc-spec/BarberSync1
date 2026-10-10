@@ -31,6 +31,7 @@ import { Screen } from '../../components/ui/Screen';
 import { SectionCard } from '../../components/ui/SectionCard';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Colors } from '../../constants/colors';
+import { useCurrentDay } from '../../hooks/useCurrentDay';
 import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useTransactions } from '../../hooks/useTransactions';
@@ -48,12 +49,13 @@ import type { RangePreset } from '../../utils/dateUtils';
 type StatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE';
 
 export default function BarbersScreen() {
+  const currentDay = useCurrentDay();
   const { user } = useAuth();
   const { barbers, settings, refreshBarbers } = useAppData();
 
   const [preset, setPreset] = useState<RangePreset>('MONTH');
-  const range = useMemo(() => buildRange(preset), [preset]);
-  const { transactions, loading, refresh } = useTransactions({ from: range.from, to: range.to });
+  const range = useMemo(() => buildRange(preset), [preset, currentDay]);
+  const { transactions, loading, refresh, error: liveError } = useTransactions({ from: range.from, to: range.to });
 
   // FIX: pass the real staff list so each transaction is matched to a current
   // barber. This prevents duplicate rows (e.g. "Juan Dela Cruz" twice) caused
@@ -201,6 +203,7 @@ export default function BarbersScreen() {
   return (
     <>
       <Screen refreshing={loading} onRefresh={refresh}>
+        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
         {/* Header Stats Overview */}
         <View style={styles.statsRow}>
           <View style={styles.statMiniCard}>

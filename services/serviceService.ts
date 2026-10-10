@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDocs, query, where, limit, setDoc, updateDoc } from 'firebase/firestore';
 import { COLLECTIONS, STORAGE_KEYS } from '../constants/config';
 import { BarberService, ServiceInput } from '../types/service';
 import { firestore } from './firebase';
@@ -10,7 +10,8 @@ import { isOnline } from './networkService';
  * -------------------------------------------------------
  * Any signed-in user can READ this collection (barbers need prices to log a
  * sale) but only an admin can WRITE to it - enforced in firestore.rules.
- * Reads are one-time getDocs() calls with an AsyncStorage cache fallback,
+ * This helper uses getDocs() with a cache fallback; AppDataContext also
+ * listens through liveData.ts for shared menu changes.
  * same pattern as the rest of the app. Writes use setDoc(..., { merge: true })
  * for create/update and deleteDoc() for removal, with updateDoc() used for
  * the narrower active/inactive toggle.
@@ -26,9 +27,9 @@ async function cache(services: BarberService[]): Promise<void> {
   await writeJson(STORAGE_KEYS.cachedServices, services);
 }
 
-export async function getServices(includeInactive = false): Promise<BarberService[]> {
+export async function getServices(includeInactive = false, cacheOnly = false): Promise<BarberService[]> {
   let services: BarberService[] = [];
-  if (firestore && (await isOnline())) {
+  if (!cacheOnly && firestore && (await isOnline())) {
     try {
       const snapshot = await getDocs(collection(firestore, COLLECTIONS.services));
       services = snapshot.docs.map((d) => ({ ...(d.data() as BarberService), id: d.id }));
@@ -109,4 +110,15 @@ export async function deleteService(id: string): Promise<void> {
 
 export async function replaceCachedServices(services: BarberService[]): Promise<void> {
   await cache(services);
+}
+
+/** Check history at deletion time, not via a costly full-history listener. */
+export async function serviceHasTransactions(id: string): Promise<boolean> {
+  const cached = await readJson<{ serviceId: string }[]>(STORAGE_KEYS.cachedTransactions, []);
+  if (cached.some((t) => t.serviceId === id)) return true;
+  if (!firestore) return false;
+  if (!(await isOnline())) throw new Error('Connect to check service history before deleting.');
+  const snap = await getDocs(query(collection(firestore, COLLECTIONS.transactions),
+    where('serviceId', '==', id), limit(1)));
+  return !snap.empty;
 }

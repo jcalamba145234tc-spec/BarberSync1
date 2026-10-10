@@ -11,14 +11,15 @@ import { isOnline } from './networkService';
  * Single document (settings/shop) holding things like the shop's split
  * percentage and minimum service price. Any signed-in user can READ it
  * (needed on-device to validate a sale before it's even sent), but only an
- * admin can WRITE to it. One-time getDoc()/setDoc() calls, with the usual
+ * admin can WRITE to it. AppDataContext subscribes through liveData.ts;
+ * these fallback helpers use getDoc()/setDoc(), with the usual
  * AsyncStorage cache fallback for offline/failed reads. Firestore's own
  * security rules independently re-check the split percentage against this
  * document on every transaction write, so even a tampered client can't
  * submit a sale with the wrong split.
  */
-export async function getSettings(): Promise<ShopSettings> {
-  if (firestore && (await isOnline())) {
+export async function getSettings(cacheOnly = false): Promise<ShopSettings> {
+  if (!cacheOnly && firestore && (await isOnline())) {
     try {
       const snapshot = await getDoc(doc(firestore, COLLECTIONS.settings, SETTINGS_DOC_ID));
       if (snapshot.exists()) {

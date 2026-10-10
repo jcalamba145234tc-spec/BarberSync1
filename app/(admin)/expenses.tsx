@@ -2,7 +2,7 @@
  * Admin-only expense log (rent, utilities, supplies, etc.), feeding into the
  * net-profit calculation on the Reports screen.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Chip, Dialog, HelperText, Portal, Text, TextInput } from 'react-native-paper';
 import { AppSnackbar } from '../../components/ui/AppSnackbar';
@@ -12,18 +12,20 @@ import { Screen } from '../../components/ui/Screen';
 import { SectionCard } from '../../components/ui/SectionCard';
 import { Colors } from '../../constants/colors';
 import { EXPENSE_CATEGORIES } from '../../constants/config';
+import { useExpenses } from '../../hooks/useExpenses';
+import { useCurrentDay } from '../../hooks/useCurrentDay';
 import { useAppData } from '../../context/AppDataContext';
 import { Expense, ExpenseCategory } from '../../types/expense';
-import { deleteExpense, getExpenses, saveExpense } from '../../services/expenseService';
+import { deleteExpense, saveExpense } from '../../services/expenseService';
 import { formatCurrency, sum } from '../../utils/calculations';
 import { buildRange, formatDate, parseInputDate } from '../../utils/dateUtils';
 import { parseAmount, validateExpense } from '../../utils/validation';
 
 export default function ExpensesScreen() {
+  const currentDay = useCurrentDay();
   const { settings } = useAppData();
-  const month = useMemo(() => buildRange('MONTH'), []);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [loading, setLoading] = useState(true);
+  const month = useMemo(() => buildRange('MONTH'), [currentDay]);
+  const { expenses, loading, error: liveError, refresh: load } = useExpenses();
   const [visible, setVisible] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [name, setName] = useState('');
@@ -34,17 +36,6 @@ export default function ExpensesScreen() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setExpenses(await getExpenses());
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   const monthExpenses = useMemo(
     () => expenses.filter((e) => e.date >= month.from && e.date <= month.to),
@@ -103,6 +94,7 @@ export default function ExpensesScreen() {
   return (
     <>
       <Screen refreshing={loading} onRefresh={load}>
+        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
         <SectionCard
           title="This month"
           subtitle={`Configured fixed cost: ${formatCurrency(settings.monthlyFixedExpense)}`}

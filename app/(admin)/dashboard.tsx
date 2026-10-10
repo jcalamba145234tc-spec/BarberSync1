@@ -2,10 +2,10 @@
  * Admin home screen: today's key numbers plus the quick-action shortcuts and
  * barber performance table for the current period.
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet } from 'react-native';
 import { Button, FAB, Text } from 'react-native-paper';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { BarberPerformanceTable } from '../../components/dashboard/BarberPerformanceTable';
 import { TopBarbersList } from '../../components/dashboard/TopBarbersList';
 import { QuickActions } from '../../components/dashboard/QuickActions';
@@ -16,55 +16,32 @@ import { SectionCard } from '../../components/ui/SectionCard';
 import { StatCard, StatGrid } from '../../components/ui/StatCard';
 import { TransactionCard } from '../../components/transactions/TransactionCard';
 import { Colors } from '../../constants/colors';
+import { useCurrentDay } from '../../hooks/useCurrentDay';
 import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useQueue } from '../../hooks/useQueue';
 import { useTransactions } from '../../hooks/useTransactions';
-import { calculateAttendanceSummary, getDailyAttendance } from '../../services/attendanceService';
+import { calculateAttendanceSummary } from '../../services/attendanceService';
 import { notifyEndOfDaySummary } from '../../services/notificationService';
-import { AttendanceSummary } from '../../types/attendance';
+import { useDailyAttendance } from '../../hooks/useDailyAttendance';
 import { buildFinancialReport, formatCurrency } from '../../utils/calculations';
 import { buildRange, formatDate, isWithinRange } from '../../utils/dateUtils';
 
-/** Local-time YYYY-MM-DD, the same id format the attendance screen saves under. */
-function todayId(): string {
-  const d = new Date();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${month}-${day}`;
-}
-
 export default function AdminDashboard() {
+  const currentDay = useCurrentDay();
   const router = useRouter();
   const { user } = useAuth();
   const { settings, services, barbers } = useAppData();
-  const today = useMemo(() => buildRange('TODAY'), []);
-  const month = useMemo(() => buildRange('MONTH'), []);
-  const { transactions, loading, refresh } = useTransactions({ from: month.from, to: month.to });
+  const today = useMemo(() => buildRange('TODAY'), [currentDay]);
+  const month = useMemo(() => buildRange('MONTH'), [currentDay]);
+  const { transactions, loading, refresh, error: liveError } = useTransactions({ from: month.from, to: month.to });
   // Same hook as the queue tab, so the counter here and the list there
   // always agree (it reloads whenever this screen gains focus).
   const { activeQueue } = useQueue(services);
 
-  // Real attendance for today (this used to be hardcoded 3 / 1 / 4).
-  const [attendance, setAttendance] = useState<AttendanceSummary | null>(null);
-  const [attendanceSaved, setAttendanceSaved] = useState(false);
-
-  const loadAttendance = useCallback(async () => {
-    try {
-      const day = await getDailyAttendance(todayId(), barbers);
-      setAttendance(calculateAttendanceSummary(day.records));
-      setAttendanceSaved(!day.draft);
-    } catch (error) {
-      console.warn('[BarberSync] Could not load today\'s attendance for the dashboard.', error);
-    }
-  }, [barbers]);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      refresh();
-      loadAttendance();
-    }, [refresh, loadAttendance])
-  );
+  const { attendance: day, error: attendanceError } = useDailyAttendance(currentDay, barbers);
+  const attendance = day ? calculateAttendanceSummary(day.records) : null;
+  const attendanceSaved = !!day && !day.draft;
 
   const todays = useMemo(
     () => transactions.filter((t) => isWithinRange(t.createdAt, today.from, today.to)),
@@ -89,6 +66,7 @@ export default function AdminDashboard() {
   return (
     <>
       <Screen refreshing={loading} onRefresh={refresh}>
+        {liveError || attendanceError ? <Text style={{ color: Colors.danger }}>{liveError || attendanceError}</Text> : null}
         <Text variant="titleLarge" style={styles.greeting}>
           {settings.shopName}
         </Text>

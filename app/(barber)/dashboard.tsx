@@ -15,6 +15,7 @@ import { StatCard, StatGrid } from '../../components/ui/StatCard';
 import { TransactionCard } from '../../components/transactions/TransactionCard';
 import { QueueCard } from '../../components/queue/QueueCard';
 import { Colors } from '../../constants/colors';
+import { useCurrentDay } from '../../hooks/useCurrentDay';
 import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useQueue } from '../../hooks/useQueue';
@@ -24,12 +25,13 @@ import { buildRange, formatDate, isWithinRange } from '../../utils/dateUtils';
 
 /** Barbers only ever see their own numbers. */
 export default function BarberDashboard() {
+  const currentDay = useCurrentDay();
   const { user } = useAuth();
   const { services } = useAppData();
-  const today = useMemo(() => buildRange('TODAY'), []);
-  const month = useMemo(() => buildRange('MONTH'), []);
+  const today = useMemo(() => buildRange('TODAY'), [currentDay]);
+  const month = useMemo(() => buildRange('MONTH'), [currentDay]);
   // Live: a service the owner records for this barber appears right away.
-  const { transactions, loading, refresh } = useLiveTransactions({
+  const { transactions, loading, refresh, error: liveError } = useLiveTransactions({
     from: month.from,
     to: month.to,
     barberId: user?.id,
@@ -53,6 +55,7 @@ export default function BarberDashboard() {
   return (
     <>
       <Screen refreshing={loading} onRefresh={refresh}>
+        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
         <Text variant="titleLarge" style={styles.greeting}>Hi, {user?.name}</Text>
         <Text variant="bodySmall" style={styles.muted}>{formatDate(new Date())}</Text>
 

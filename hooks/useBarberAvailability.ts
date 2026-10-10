@@ -5,20 +5,11 @@
  * queue. LATE barbers are still available. A day with no saved attendance
  * counts everyone as available (the default is "Present").
  */
-import { useCallback, useState } from 'react';
-import { useFocusEffect } from 'expo-router';
+import { useMemo } from 'react';
 import { useAppData } from '../context/AppDataContext';
-import { getDailyAttendance } from '../services/attendanceService';
+import { useCurrentDay } from './useCurrentDay';
+import { useDailyAttendance } from './useDailyAttendance';
 import { AttendanceStatus } from '../types/attendance';
-
-/** Local-date key (YYYY-MM-DD), same format the Attendance screen saves under. */
-function todayKey(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
 
 export type UnavailableStatus = Extract<AttendanceStatus, 'ABSENT' | 'OFF'>;
 
@@ -28,27 +19,13 @@ export function unavailableLabel(status: UnavailableStatus): string {
 
 export function useBarberAvailability() {
   const { barbers } = useAppData();
-  const [unavailable, setUnavailable] = useState<Record<string, UnavailableStatus>>({});
-
-  const refresh = useCallback(async () => {
-    try {
-      const attendance = await getDailyAttendance(todayKey(), barbers);
-      const next: Record<string, UnavailableStatus> = {};
-      attendance.records.forEach((record) => {
-        if (record.status === 'ABSENT' || record.status === 'OFF') next[record.barberId] = record.status;
-      });
-      setUnavailable(next);
-    } catch (error) {
-      console.warn('[BarberSync] Could not load barber availability.', error);
-    }
-  }, [barbers]);
-
-  // Re-check every time the screen is shown, so attendance changes apply right away.
-  useFocusEffect(
-    useCallback(() => {
-      refresh();
-    }, [refresh])
-  );
-
+  const { attendance, refresh } = useDailyAttendance(useCurrentDay(), barbers);
+  const unavailable = useMemo(() => {
+    const next: Record<string, UnavailableStatus> = {};
+    attendance?.records.forEach((record) => {
+      if (record.status === 'ABSENT' || record.status === 'OFF') next[record.barberId] = record.status;
+    });
+    return next;
+  }, [attendance]);
   return { unavailable, refresh };
 }

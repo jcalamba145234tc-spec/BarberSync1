@@ -2,7 +2,7 @@
  * Admin screen for managing the service/price menu barbers choose from when
  * logging a sale.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, FAB, Switch, Text } from 'react-native-paper';
 import { AppSnackbar } from '../../components/ui/AppSnackbar';
@@ -12,23 +12,16 @@ import { SectionCard } from '../../components/ui/SectionCard';
 import { ServiceFormDialog } from '../../components/services/ServiceFormDialog';
 import { Colors } from '../../constants/colors';
 import { useAppData } from '../../context/AppDataContext';
-import { useTransactions } from '../../hooks/useTransactions';
 import { BarberService, ServiceInput } from '../../types/service';
-import { deleteService, saveService, setServiceActive } from '../../services/serviceService';
+import { deleteService, saveService, setServiceActive, serviceHasTransactions } from '../../services/serviceService';
 import { formatCurrency } from '../../utils/calculations';
 
 export default function ServicesScreen() {
-  const { services, settings, refreshServices } = useAppData();
-  const { transactions } = useTransactions({});
+  const { services, settings, refreshServices, liveError } = useAppData();
   const [dialogVisible, setDialogVisible] = useState(false);
   const [editing, setEditing] = useState<BarberService | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-
-  const usedServiceIds = useMemo(
-    () => new Set(transactions.map((transaction) => transaction.serviceId)),
-    [transactions]
-  );
 
   const handleSave = async (input: ServiceInput, id?: string) => {
     setSaving(true);
@@ -52,18 +45,23 @@ export default function ServicesScreen() {
   };
 
   const handleDelete = async (service: BarberService) => {
-    if (usedServiceIds.has(service.id)) {
-      setMessage('This service has transaction history. Deactivate it instead.');
-      return;
+    try {
+      if (await serviceHasTransactions(service.id)) {
+        setMessage('This service has transaction history. Deactivate it instead.');
+        return;
+      }
+      await deleteService(service.id);
+      await refreshServices();
+      setMessage('Service deleted.');
+    } catch {
+      setMessage('Could not check service history. Connect and try again, or deactivate it.');
     }
-    await deleteService(service.id);
-    await refreshServices();
-    setMessage('Service deleted.');
   };
 
   return (
     <>
       <Screen>
+        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
         <SectionCard
           title="Service menu"
           subtitle={`Minimum price: ${formatCurrency(settings.minimumServicePrice)}`}
@@ -83,7 +81,6 @@ export default function ServicesScreen() {
                   <Text variant="titleSmall" style={styles.name}>{service.name}</Text>
                   <Text variant="bodySmall" style={styles.muted}>
                     {formatCurrency(service.price)} · {service.durationMinutes} min
-                    {usedServiceIds.has(service.id) ? ' · has history' : ''}
                   </Text>
                   <View style={styles.actions}>
                     <Button compact onPress={() => { setEditing(service); setDialogVisible(true); }}>
@@ -92,7 +89,6 @@ export default function ServicesScreen() {
                     <Button
                       compact
                       textColor={Colors.danger}
-                      disabled={usedServiceIds.has(service.id)}
                       onPress={() => handleDelete(service)}
                     >
                       Delete
