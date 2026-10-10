@@ -4,7 +4,7 @@
  * requires firestore.rules to actually include a match block for the
  * attendance/ collection, or every read/write here gets permission-denied.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import {
   Avatar,
@@ -25,10 +25,10 @@ import { Screen } from '../../components/ui/Screen';
 import { SectionCard } from '../../components/ui/SectionCard';
 import { Colors } from '../../constants/colors';
 import { useAppData } from '../../context/AppDataContext';
+import { useDailyAttendance } from '../../hooks/useDailyAttendance';
 import { useAuth } from '../../hooks/useAuth';
 import {
   calculateAttendanceSummary,
-  getDailyAttendance,
   saveDailyAttendance,
 } from '../../services/attendanceService';
 import { AttendanceStatus, BarberAttendanceRecord, DailyAttendance } from '../../types/attendance';
@@ -60,7 +60,10 @@ export default function AttendanceScreen() {
   const isToday = useMemo(() => toDateString(new Date()) === dateStr, [dateStr]);
 
   const [attendance, setAttendance] = useState<DailyAttendance | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { attendance: liveAttendance, loading, error: liveError, refresh } = useDailyAttendance(dateStr, barbers);
+  const dirty = useRef(false);
+  const baseline = useRef<string | null>(null);
+  const [conflict, setConflict] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
@@ -68,22 +71,33 @@ export default function AttendanceScreen() {
 
   const isAdmin = user?.role === 'ADMIN';
 
-  // Load attendance
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await getDailyAttendance(dateStr, barbers);
-      setAttendance(data);
-    } catch {
-      setMessage('Could not load attendance.');
-    } finally {
-      setLoading(false);
-    }
-  }, [dateStr, barbers]);
+  useEffect(() => {
+    dirty.current = false;
+    baseline.current = null;
+    setConflict(false);
+    setAttendance(null);
+  }, [dateStr]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (!liveAttendance || liveAttendance.date !== dateStr) return;
+    const version = JSON.stringify(liveAttendance.records);
+    if (dirty.current) {
+      if (baseline.current !== version) setConflict(true);
+      return; // Never replace a status/notes draft while the admin is typing.
+    }
+    baseline.current = version;
+    setAttendance(liveAttendance);
+  }, [liveAttendance, dateStr]);
+
+  const loadData = useCallback(async () => {
+    dirty.current = false;
+    setConflict(false);
+    if (liveAttendance?.date === dateStr) {
+      baseline.current = JSON.stringify(liveAttendance.records);
+      setAttendance(liveAttendance);
+    }
+    await refresh();
+  }, [refresh, liveAttendance, dateStr]);
 
   // Navigate date
   const changeDate = (days: number) => {
@@ -105,6 +119,7 @@ export default function AttendanceScreen() {
   // Update status for a barber
   const handleStatusChange = (barberId: string, status: AttendanceStatus) => {
     if (!attendance) return;
+    dirty.current = true;
     setAttendance({
       ...attendance,
       records: attendance.records.map((r) =>
@@ -116,6 +131,7 @@ export default function AttendanceScreen() {
   // Update notes
   const handleNotesChange = (barberId: string, notes: string) => {
     if (!attendance) return;
+    dirty.current = true;
     setAttendance({
       ...attendance,
       records: attendance.records.map((r) =>
@@ -127,6 +143,7 @@ export default function AttendanceScreen() {
   // Mark all present
   const handleMarkAllPresent = () => {
     if (!attendance) return;
+    dirty.current = true;
     setAttendance({
       ...attendance,
       records: attendance.records.map((r) => ({ ...r, status: 'PRESENT' })),
@@ -136,10 +153,13 @@ export default function AttendanceScreen() {
 
   // Save attendance
   const handleSave = async () => {
-    if (!attendance) return;
+    if (!attendance || conflict) return;
     setSaving(true);
     try {
       await saveDailyAttendance(attendance);
+      dirty.current = false;
+      setConflict(false);
+      baseline.current = JSON.stringify(attendance.records);
       setAttendance({ ...attendance, draft: false });
       setMessage(`Attendance saved for ${formatDate(attendance.date)}.`);
     } catch {
@@ -161,6 +181,11 @@ export default function AttendanceScreen() {
   return (
     <>
       <Screen refreshing={loading} onRefresh={loadData}>
+        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
+        {conflict ? <SectionCard title="Attendance changed on another device">
+          <Text>Your unsaved edits were kept. Reload the latest attendance before editing again.</Text>
+          <Button onPress={loadData}>Discard draft and reload</Button>
+        </SectionCard> : null}
         {/* Date Selector Banner */}
         <Card style={styles.dateCard}>
           <Card.Content style={styles.dateContent}>
@@ -377,7 +402,7 @@ export default function AttendanceScreen() {
             icon="content-save"
             onPress={handleSave}
             loading={saving}
-            disabled={saving}
+            disabled={saving || conflict}
             style={styles.saveBtn}
           >
             {saving ? 'Saving…' : 'Save Attendance'}

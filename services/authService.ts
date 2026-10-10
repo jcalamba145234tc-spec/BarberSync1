@@ -155,9 +155,9 @@ export async function restoreSession(): Promise<AppUser | null> {
 }
 
 /** Barber list used by transaction entry, admin management, and report filters. */
-export async function listBarbers(includeInactive = true): Promise<AppUser[]> {
+export async function listBarbers(includeInactive = true, cacheOnly = false): Promise<AppUser[]> {
   const { getBarbers } = await import('./barberService');
-  return getBarbers(includeInactive);
+  return getBarbers(includeInactive, cacheOnly);
 }
 
 /** Creates or updates the Firestore profile for a user (admin tooling). */

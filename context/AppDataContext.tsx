@@ -4,7 +4,7 @@
  * connection state, and pending-sync count. Centralizing this here means a
  * screen doesn't each need to independently fetch the same shared data.
  */
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_SETTINGS } from '../constants/config';
 import { AppUser } from '../types/auth';
 import { BarberService } from '../types/service';
@@ -16,6 +16,7 @@ import { syncEndOfDaySchedule } from '../services/notificationService';
 import { getServices } from '../services/serviceService';
 import { getSettings, saveSettings } from '../services/settingsService';
 import { pendingCount, syncPendingTransactions } from '../services/syncService';
+import { subscribeSharedData } from '../services/liveData';
 import { useAuth } from '../hooks/useAuth';
 
 interface AppDataContextValue {
@@ -25,6 +26,7 @@ interface AppDataContextValue {
   loading: boolean;
   connection: ConnectionState;
   pending: number;
+  liveError: string | null;
   refreshServices: () => Promise<void>;
   refreshBarbers: () => Promise<void>;
   updateSettings: (settings: ShopSettings) => Promise<void>;
@@ -41,9 +43,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [connection, setConnection] = useState<ConnectionState>('ONLINE');
   const [pending, setPending] = useState(0);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const revisions = useRef({ services: 0, barbers: 0 });
 
   const refreshServices = useCallback(async () => {
-    setServices(await getServices(true));
+    const version = revisions.current.services;
+    const rows = await getServices(true);
+    if (version === revisions.current.services) setServices(rows);
   }, []);
 
   const refreshBarbers = useCallback(async () => {
@@ -56,7 +62,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setBarbers([]);
       return;
     }
-    setBarbers(await listBarbers());
+    const version = revisions.current.barbers;
+    const rows = await listBarbers();
+    if (version === revisions.current.barbers) setBarbers(rows);
   }, [user?.role]);
 
   const syncNow = useCallback(async () => {
@@ -74,30 +82,65 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
     if (!user) {
+      setSettings(DEFAULT_SETTINGS);
+      setServices([]);
+      setBarbers([]);
+      setLiveError(null);
       setLoading(false);
-      return () => {
-        mounted = false;
-      };
+      return;
     }
+    const received = { settings: false, services: false, barbers: false };
     setLoading(true);
+    setLiveError(null);
+    const stop = subscribeSharedData(user, {
+      settings: (next) => {
+        if (!mounted) return;
+        received.settings = true;
+        setSettings(next);
+      },
+      services: (rows) => {
+        if (!mounted) return;
+        received.services = true;
+        revisions.current.services++;
+        setServices(rows);
+      },
+      barbers: (rows) => {
+        if (!mounted) return;
+        received.barbers = true;
+        revisions.current.barbers++;
+        setBarbers(rows);
+      },
+      error: (error) => {
+        if (!mounted) return;
+        console.warn('[BarberSync] Shared live data failed.', error);
+        setLiveError('Some live updates are unavailable. Check your connection and Firebase permissions.');
+      },
+    });
     (async () => {
       try {
-        const loadedSettings = await getSettings();
+        const [loadedSettings, menu, staff] = await Promise.all([
+          getSettings(true), getServices(true, true),
+          user.role === 'ADMIN' ? listBarbers(true, true) : Promise.resolve([]),
+        ]);
         if (!mounted) return;
-        setSettings(loadedSettings);
-        await syncEndOfDaySchedule(loadedSettings);
-        await refreshServices();
-        await refreshBarbers();
+        if (!received.settings) setSettings(loadedSettings);
+        if (!received.services) setServices(menu);
+        if (!received.barbers) setBarbers(staff);
         setPending(await pendingCount());
-        setConnection((await isOnline()) ? 'ONLINE' : 'OFFLINE');
+        if (mounted) setConnection((await isOnline()) ? 'ONLINE' : 'OFFLINE');
+      } catch (error) {
+        console.warn('[BarberSync] Initial cached data failed.', error);
       } finally {
         if (mounted) setLoading(false);
       }
     })();
-    return () => {
-      mounted = false;
-    };
-  }, [user, refreshServices, refreshBarbers]);
+    return () => { mounted = false; stop(); };
+  }, [user?.id, user?.role]);
+
+  useEffect(() => {
+    if (user) void syncEndOfDaySchedule(settings).catch((error) =>
+      console.warn('[BarberSync] Could not update notification schedule.', error));
+  }, [settings, user?.id]);
 
   useEffect(() => {
     if (!user) return;
@@ -122,12 +165,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       loading,
       connection,
       pending,
+      liveError,
       refreshServices,
       refreshBarbers,
       updateSettings,
       syncNow,
     }),
-    [settings, services, barbers, loading, connection, pending, refreshServices, refreshBarbers, updateSettings, syncNow]
+    [settings, services, barbers, loading, connection, pending, liveError, refreshServices, refreshBarbers, updateSettings, syncNow]
   );
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;

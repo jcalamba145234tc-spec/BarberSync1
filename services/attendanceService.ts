@@ -15,8 +15,8 @@ import { isOnline } from './networkService';
  * ----------------------------------
  * One Firestore document per calendar day, read with getDoc() and written
  * with setDoc(..., { merge: true }) - a one-time read/write, not a live
- * listener, so the admin needs to reopen or refresh the screen to see
- * changes made from another device. Reads fall back to the local
+ * listener in this fallback helper. Screens also subscribe via liveData.ts
+ * to receive changes from other devices. Reads fall back to the local
  * AsyncStorage cache (see readAttendanceMap/writeAttendanceMap below) when
  * offline or when Firestore rejects the read, e.g. firestore.rules not yet
  * covering the attendance/ collection.
@@ -36,12 +36,12 @@ async function writeAttendanceMap(map: Record<string, DailyAttendance>): Promise
  */
 export async function getDailyAttendance(
   dateStr: string,
-  barbers: AppUser[]
+  barbers: AppUser[],
+  cacheOnly = false
 ): Promise<DailyAttendance> {
-  const activeBarbers = barbers.filter((b) => b.active !== false);
   let attendance: DailyAttendance | null = null;
 
-  if (firestore && (await isOnline())) {
+  if (!cacheOnly && firestore && (await isOnline())) {
     try {
       const snap = await getDoc(doc(firestore, COLLECTIONS.attendance, dateStr));
       if (snap.exists()) {
@@ -59,6 +59,12 @@ export async function getDailyAttendance(
     }
   }
 
+  return reconcileAttendance(dateStr, barbers, attendance);
+}
+
+/** Reconcile both live snapshots and fallback reads, including deleted/missing days. */
+export function reconcileAttendance(dateStr: string, barbers: AppUser[], attendance: DailyAttendance | null): DailyAttendance {
+  const activeBarbers = barbers.filter((b) => b.active !== false);
   if (attendance) {
     // Reconcile: ensure any active barbers added after saving are included
     const existingIds = new Set(attendance.records.map((r) => r.barberId));
@@ -155,4 +161,16 @@ export function calculateAttendanceSummary(records: BarberAttendanceRecord[]): A
     off,
     total: records.length,
   };
+}
+
+let liveCacheWrites: Promise<void> = Promise.resolve();
+export function cacheLiveAttendance(date: string, day: DailyAttendance | null): Promise<void> {
+  const write = liveCacheWrites.catch(() => {}).then(async () => {
+    const map = await readAttendanceMap();
+    if (day) map[date] = day;
+    else delete map[date];
+    await writeAttendanceMap(map);
+  });
+  liveCacheWrites = write;
+  return write;
 }

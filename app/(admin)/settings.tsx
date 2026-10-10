@@ -2,7 +2,7 @@
  * Admin shop settings screen - shop name, minimum service price, and the
  * admin's own password change (via ChangePasswordCard).
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Divider, HelperText, Switch, Text, TextInput } from 'react-native-paper';
 import { AppSnackbar } from '../../components/ui/AppSnackbar';
@@ -20,8 +20,13 @@ import { formatCurrency } from '../../utils/calculations';
 import { parseAmount } from '../../utils/validation';
 
 export default function SettingsScreen() {
-  const { settings, updateSettings, pending, syncNow, connection } = useAppData();
+  const { settings, updateSettings, pending, syncNow, connection, liveError } = useAppData();
   const { user } = useAuth();
+
+  const dirty = useRef(false);
+  const baseline = useRef(JSON.stringify(settings));
+  const [conflict, setConflict] = useState(false);
+  const [reloadDraft, setReloadDraft] = useState(0);
 
   const [shopName, setShopName] = useState(settings.shopName);
   const [shopAddress, setShopAddress] = useState(settings.shopAddress);
@@ -36,6 +41,9 @@ export default function SettingsScreen() {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    const version = JSON.stringify(settings);
+    if (dirty.current) { if (baseline.current !== version) setConflict(true); return; }
+    baseline.current = version;
     setShopName(settings.shopName);
     setShopAddress(settings.shopAddress);
     setShopContact(settings.shopContact);
@@ -44,9 +52,10 @@ export default function SettingsScreen() {
     setMonthlyFixed(String(settings.monthlyFixedExpense));
     setNotifications(settings.notificationsEnabled);
     setEndOfDay(settings.endOfDaySummaryEnabled);
-  }, [settings]);
+  }, [settings, reloadDraft]);
 
   const handleSave = async () => {
+    if (conflict) return;
     const percent = Number(shopPercent);
     const minimum = parseAmount(minimumPrice);
     const fixed = parseAmount(monthlyFixed);
@@ -72,6 +81,8 @@ export default function SettingsScreen() {
         notificationsEnabled: notifications,
         endOfDaySummaryEnabled: endOfDay,
       });
+      dirty.current = false;
+      setConflict(false);
       setMessage('Settings saved.');
     } catch {
       setMessage('Could not save settings.');
@@ -83,10 +94,15 @@ export default function SettingsScreen() {
   return (
     <>
       <Screen>
+        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
+        {conflict ? <SectionCard title="Settings changed on another device">
+          <Text>Your draft was kept. Reload before editing again.</Text>
+          <Button onPress={() => { dirty.current = false; setConflict(false); setReloadDraft((n) => n + 1); }}>Discard draft and reload</Button>
+        </SectionCard> : null}
         <SectionCard title="Shop details">
-          <TextInput label="Shop name" mode="outlined" value={shopName} onChangeText={setShopName} />
-          <TextInput label="Address" mode="outlined" value={shopAddress} onChangeText={setShopAddress} />
-          <TextInput label="Contact number" mode="outlined" keyboardType="phone-pad" value={shopContact} onChangeText={setShopContact} />
+          <TextInput label="Shop name" mode="outlined" value={shopName} onChangeText={(value) => { dirty.current = true; setShopName(value); }} />
+          <TextInput label="Address" mode="outlined" value={shopAddress} onChangeText={(value) => { dirty.current = true; setShopAddress(value); }} />
+          <TextInput label="Contact number" mode="outlined" keyboardType="phone-pad" value={shopContact} onChangeText={(value) => { dirty.current = true; setShopContact(value); }} />
         </SectionCard>
 
         <SectionCard title="Revenue & pricing" subtitle="Used by every calculation in the app.">
@@ -95,7 +111,7 @@ export default function SettingsScreen() {
             mode="outlined"
             keyboardType="numeric"
             value={shopPercent}
-            onChangeText={setShopPercent}
+            onChangeText={(value) => { dirty.current = true; setShopPercent(value); }}
           />
           <HelperText type="info" visible>
             Barber receives {100 - (Number(shopPercent) || 0)}%.
@@ -105,14 +121,14 @@ export default function SettingsScreen() {
             mode="outlined"
             keyboardType="numeric"
             value={minimumPrice}
-            onChangeText={setMinimumPrice}
+            onChangeText={(value) => { dirty.current = true; setMinimumPrice(value); }}
           />
           <TextInput
             label="Monthly fixed expense (₱)"
             mode="outlined"
             keyboardType="numeric"
             value={monthlyFixed}
-            onChangeText={setMonthlyFixed}
+            onChangeText={(value) => { dirty.current = true; setMonthlyFixed(value); }}
           />
           <HelperText type="info" visible>
             Rent and utilities, currently {formatCurrency(settings.monthlyFixedExpense)}.
@@ -122,17 +138,17 @@ export default function SettingsScreen() {
         <SectionCard title="Notifications">
           <View style={styles.switchRow}>
             <Text variant="bodyMedium">Transaction & GCash alerts</Text>
-            <Switch value={notifications} onValueChange={setNotifications} />
+            <Switch value={notifications} onValueChange={(value) => { dirty.current = true; setNotifications(value); }} />
           </View>
           <View style={styles.switchRow}>
             <Text variant="bodyMedium">End-of-day summary</Text>
-            <Switch value={endOfDay} onValueChange={setEndOfDay} />
+            <Switch value={endOfDay} onValueChange={(value) => { dirty.current = true; setEndOfDay(value); }} />
           </View>
         </SectionCard>
 
         {!!error && <Text style={styles.error}>{error}</Text>}
 
-        <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving} style={styles.save}>
+        <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving || conflict} style={styles.save}>
           {saving ? 'Saving…' : 'Save settings'}
         </Button>
 

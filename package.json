@@ -9,7 +9,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "fix-deps": "expo install --fix"
+    "fix-deps": "expo install --fix",
+    "test": "node --test tests/*.test.cjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

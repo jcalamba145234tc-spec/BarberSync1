@@ -14,6 +14,7 @@ import { ReportSummary } from '../../components/reports/ReportSummary';
 import { Screen } from '../../components/ui/Screen';
 import { SectionCard } from '../../components/ui/SectionCard';
 import { Colors } from '../../constants/colors';
+import { useCurrentDay } from '../../hooks/useCurrentDay';
 import { useAppData } from '../../context/AppDataContext';
 import { useReport } from '../../hooks/useReport';
 import { AUTO_MONTHLY_EXPENSE_PREFIX } from '../../services/reportService';
@@ -46,6 +47,7 @@ const QUICK_RANGES: { label: string; get: () => [Date, Date] }[] = [
 ];
 
 export default function ReportsScreen() {
+  const currentDay = useCurrentDay();
   const { settings, barbers } = useAppData();
   const [preset, setPreset] = useState<Preset>('TODAY');
   const [customFrom, setCustomFrom] = useState<Date | null>(null);
@@ -62,7 +64,7 @@ export default function ReportsScreen() {
       return buildRange('TODAY');
     }
     return buildRange(preset);
-  }, [preset, customFrom, customTo]);
+  }, [preset, customFrom, customTo, currentDay]);
 
   const filters: ReportFilters = useMemo(
     () => ({

@@ -6,12 +6,12 @@
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { SegmentedButtons, Text } from 'react-native-paper';
-import { useFocusEffect } from 'expo-router';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { Screen } from '../../components/ui/Screen';
 import { SectionCard } from '../../components/ui/SectionCard';
 import { Colors } from '../../constants/colors';
+import { useCurrentDay } from '../../hooks/useCurrentDay';
 import { useAppData } from '../../context/AppDataContext';
 import { useTransactions } from '../../hooks/useTransactions';
 import { buildFinancialReport, formatCurrency } from '../../utils/calculations';
@@ -20,12 +20,12 @@ import type { RangePreset } from '../../utils/dateUtils';
 
 /** Admin-only breakdown of the shop/barber split, transaction by transaction. */
 export default function RevenueSplitScreen() {
+  const currentDay = useCurrentDay();
   const { settings } = useAppData();
   const [preset, setPreset] = useState<RangePreset>('TODAY');
-  const range = useMemo(() => buildRange(preset), [preset]);
-  const { transactions, loading, refresh } = useTransactions({ from: range.from, to: range.to });
+  const range = useMemo(() => buildRange(preset), [preset, currentDay]);
+  const { transactions, loading, refresh, error: liveError } = useTransactions({ from: range.from, to: range.to });
 
-  useFocusEffect(React.useCallback(() => { refresh(); }, [refresh]));
 
   const report = useMemo(() => buildFinancialReport(transactions, [], range), [transactions, range]);
   const completed = useMemo(() => transactions.filter((t) => t.status === 'COMPLETED'), [transactions]);
@@ -34,6 +34,7 @@ export default function RevenueSplitScreen() {
 
   return (
     <Screen refreshing={loading} onRefresh={refresh}>
+        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
       <SegmentedButtons
         value={preset}
         onValueChange={(value) => setPreset(value as RangePreset)}

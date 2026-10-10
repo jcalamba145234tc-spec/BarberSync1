@@ -1,10 +1,4 @@
-/**
- * Combines transactions + expenses for a date range into one FinancialReport
- * via utils/calculations.ts. Inherits the 500-record cap from
- * getTransactions() in transactionService.ts - a very high-volume period
- * could theoretically have older records excluded before the date filter is
- * even applied.
- */
+/** Financial reports built from complete selected-range sources. */
 import { Expense } from '../types/expense';
 import { FinancialReport, ReportFilters, ShopSettings } from '../types/report';
 import { Transaction } from '../types/transaction';
@@ -89,22 +83,20 @@ export async function generateReport(
   );
   const recorded = await getExpenses(filters.from, filters.to);
 
-  // A barber-specific or payment-specific report is a slice of revenue, so
-  // shop-wide expenses are excluded to avoid a misleading net income.
+  return buildReportResult(filters, settings, transactions, recorded);
+}
+
+/** Pure report calculation, shared by one-time export and live screen hooks. */
+export function buildReportResult(filters: ReportFilters, settings: ShopSettings,
+  rows: Transaction[], recorded: Expense[]): ReportResult {
+  const transactions = applyFilters(rows, filters);
   const includeExpenses = !filters.barberId && !filters.paymentMethod;
   const expenses = includeExpenses
-    ? [
-        ...recorded,
-        ...autoMonthlyExpenses(filters.from, filters.to, settings.monthlyFixedExpense, recorded),
-      ]
+    ? [...recorded, ...autoMonthlyExpenses(filters.from, filters.to, settings.monthlyFixedExpense, recorded)]
     : recorded;
-
   const report = buildFinancialReport(transactions, includeExpenses ? expenses : [], {
-    from: filters.from,
-    to: filters.to,
-    label: filters.label,
+    from: filters.from, to: filters.to, label: filters.label,
   });
-
   return { report, transactions, expenses };
 }
 

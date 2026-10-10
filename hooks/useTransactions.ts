@@ -1,36 +1,22 @@
-/**
- * Loads transactions for a screen with the given filters, with a manual
- * refresh function exposed - wraps services/transactionService.ts's
- * getTransactions (see that file for the actual read/offline pattern).
- */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { Transaction, TransactionFilters } from '../types/transaction';
-import { getTransactions } from '../services/transactionService';
+import { getTransactions, subscribeTransactions } from '../services/transactionService';
+import { useAuth } from './useAuth';
+import { useRealtimeResource } from './useRealtimeResource';
 
-/** Loads transactions with the given filters and exposes a manual refresh. */
+/** Live selected-range transactions; identical queries share one listener. */
 export function useTransactions(filters: TransactionFilters = {}) {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
+  const { user } = useAuth();
   const key = JSON.stringify(filters);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setTransactions(await getTransactions(JSON.parse(key) as TransactionFilters));
-    } catch (loadError) {
-      console.warn('[BarberSync] Could not load transactions.', loadError);
-      setError('Could not load transactions. Pull down to try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, [key]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  return { transactions, loading, error, refresh: load, setTransactions };
+  const id = user?.id;
+  const role = user?.role;
+  const load = useCallback((cacheOnly: boolean) =>
+    getTransactions(JSON.parse(key), cacheOnly), [key, id, role]);
+  const subscribe = useCallback((next: (rows: Transaction[]) => void, error: (error: unknown) => void) => {
+    if (!id || !role) return () => {};
+    return subscribeTransactions({ id, role }, JSON.parse(key), next, error);
+  }, [key, id, role]);
+  const result = useRealtimeResource<Transaction[]>([], load, subscribe);
+  return { transactions: result.data, setTransactions: result.setData,
+    loading: result.loading, error: result.error, refresh: result.refresh };
 }

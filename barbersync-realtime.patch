@@ -1,0 +1,2264 @@
+diff --git a/REALTIME-UPDATES.md b/REALTIME-UPDATES.md
+new file mode 100644
+index 0000000..174a718
+--- /dev/null
++++ b/REALTIME-UPDATES.md
+@@ -0,0 +1,69 @@
++# Real-time update patch
++
++Base: `main` at `4a087f367eb65e35c5137566105c84576aeb36c9`.
++
++## What updates live
++
++- Admin Dashboard: selected-month transactions, daily revenue/commission, recent sales, pending GCash and top barbers; today's attendance and barber availability.
++- Admin Transactions and Revenue Split: selected-range sales and payment/cancellation changes.
++- Reports: selected-range transactions and expenses, with recalculation when filters or shop fixed-cost settings change.
++- Barbers: selected-period earnings and admin staff directory changes.
++- Expenses: expense additions, edits and deletions. The existing all-expenses screen still listens to its full expense history.
++- Attendance: selected day's document, including missing/deleted documents and new active staff.
++- Services menu and shop settings: shared listeners after login, cleaned up at logout. Staff-list listeners are admin-only.
++- Barber Dashboard and Earnings: use the same role-scoped listener hook; Firestore queries force the signed-in barber's UID. Existing queue listeners remain in place.
++
++## Safeguards and scope
++
++- Screen listeners are active while the screen is focused. On returning, they reattach automatically. Identical transaction/expense/attendance queries share a backend listener.
++- Queries apply date bounds on the server, not after fetching the newest 500 rows. The silent 500-record read/cache cap and original 1,000-row barber listener cap are removed.
++- Slow fallback reads/manual refreshes cannot replace newer live snapshots or a changed date range.
++- Empty cache-only snapshots are ignored; confirmed empty server snapshots clear the appropriate rows. Metadata-change delivery ensures a server confirmation is observed.
++- Pending offline transactions are merged by ID; live data is persisted for the existing offline cache. Cross-device updates still require Firebase and connectivity; demo mode is local only.
++- Relative Today/Week/Month filters roll forward at local midnight and on app resume/focus.
++- Listener errors are exposed on the financial/attendance screens; pull-to-refresh retries screen listeners.
++- Attendance and settings drafts are kept when remote changes arrive. A conflict asks the admin to discard/reload before saving. This is a UI safeguard, not atomic multi-admin conflict resolution.
++- Service history is checked at delete time instead of attaching a full-history transaction listener merely to disable Delete.
++- **GCash screenshots are still embedded in transaction documents.** Firestore delivers complete documents; date scoping and listener cleanup reduce reads but do not remove screenshot bandwidth. Broad report ranges and uncapped caches can be expensive/large. No receipt migration, aggregate backend, or billing guarantee is included.
++- Existing write/offline-sync behavior is otherwise unchanged. Failed attendance/settings saves already have limitations in the original services; this patch does not redesign those writes.
++
++## Apply
++
++From a clean checkout of the base commit (or review conflicts if your `main` has advanced):
++
++```sh
++git switch -c feature/realtime-admin
++git apply --check barbersync-realtime.patch
++git apply barbersync-realtime.patch
++npm ci
++npm test
++npm run typecheck
++```
++
++No new runtime dependencies. `npm test` uses Node's test runner and the existing TypeScript package.
++The existing `barberId + createdAt` index covers the barber/date queries. Ensure the repository's Firestore rules and indexes are already deployed to the Firebase project. No rules/index changes are part of this patch.
++
++Rebuild/install the app on every test phone using your existing build process. This patch does not modify a running installed APK by itself.
++
++## Validation
++
++Completed in the implementation workspace: 12/12 regression tests passed (also 12/12 with `TZ=Asia/Manila`), TypeScript `tsc --noEmit` passed, `git diff --check` passed, and an Expo web production export succeeded. No native build, emulator, deployed Firebase, or two-phone run was performed.
++
++Automated tests use production TypeScript modules with mocked Firestore/native APIs. They cover role/date query scoping, more than 500 rows, shared-listener cleanup, payment filtering, remote updates/deletions, cache-only snapshots, pending offline rows, report recalculation, attendance reconciliation, shared-data role access, and hook stale-read/range guards.
++
++These tests are **not** a Firebase emulator/security-rules test or a two-device Expo test.
++
++### Two-device acceptance checklist
++
++Use two admin accounts/devices (or the same allowed admin login on two phones) and a barber device:
++
++1. Keep Dashboard/Transactions open on device A; record a cash sale on device B. Revenue, recent sale, commission and barber service counts should update without refreshing.
++2. Record a GCash sale; inspect the receipt and cancel/verify an eligible transaction. Totals/status should change on the other device.
++3. Keep Reports open. Add/edit/delete an expense elsewhere; verify expenses and net income. Change fixed costs; verify full-month report calculations.
++4. Change attendance; verify dashboard counts and barber availability. While another admin has unsaved attendance notes/statuses, change that day remotely: their draft must remain and the reload conflict must appear.
++5. Edit a service price/name, staff profile/active state, or shop settings. Verify menus, directory and derived settings on the other phone. Unsaved settings drafts must not be silently replaced.
++6. Switch report ranges and tabs rapidly. Old-range results must not overwrite the new range. Reopen the app offline and confirm cached values; reconnect and confirm listeners resume.
++7. Test at least 501 transactions in a selected historical period; verify complete counts/totals. Check an out-of-range sale does not affect that report.
++8. Test midnight/background-resume rollover, logout/login as a different role, and Firebase permission/listener errors.
++
++Watch Firebase usage during realistic GCash-heavy testing before rolling this out broadly.
+diff --git a/app/(admin)/attendance.tsx b/app/(admin)/attendance.tsx
+index b5d6ac8..186fa46 100644
+--- a/app/(admin)/attendance.tsx
++++ b/app/(admin)/attendance.tsx
+@@ -4,7 +4,7 @@
+  * requires firestore.rules to actually include a match block for the
+  * attendance/ collection, or every read/write here gets permission-denied.
+  */
+-import React, { useCallback, useEffect, useMemo, useState } from 'react';
++import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+ import { StyleSheet, View } from 'react-native';
+ import {
+   Avatar,
+@@ -25,10 +25,10 @@ import { Screen } from '../../components/ui/Screen';
+ import { SectionCard } from '../../components/ui/SectionCard';
+ import { Colors } from '../../constants/colors';
+ import { useAppData } from '../../context/AppDataContext';
++import { useDailyAttendance } from '../../hooks/useDailyAttendance';
+ import { useAuth } from '../../hooks/useAuth';
+ import {
+   calculateAttendanceSummary,
+-  getDailyAttendance,
+   saveDailyAttendance,
+ } from '../../services/attendanceService';
+ import { AttendanceStatus, BarberAttendanceRecord, DailyAttendance } from '../../types/attendance';
+@@ -60,7 +60,10 @@ export default function AttendanceScreen() {
+   const isToday = useMemo(() => toDateString(new Date()) === dateStr, [dateStr]);
+ 
+   const [attendance, setAttendance] = useState<DailyAttendance | null>(null);
+-  const [loading, setLoading] = useState(true);
++  const { attendance: liveAttendance, loading, error: liveError, refresh } = useDailyAttendance(dateStr, barbers);
++  const dirty = useRef(false);
++  const baseline = useRef<string | null>(null);
++  const [conflict, setConflict] = useState(false);
+   const [saving, setSaving] = useState(false);
+   const [message, setMessage] = useState<string | null>(null);
+   const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
+@@ -68,22 +71,33 @@ export default function AttendanceScreen() {
+ 
+   const isAdmin = user?.role === 'ADMIN';
+ 
+-  // Load attendance
+-  const loadData = useCallback(async () => {
+-    setLoading(true);
+-    try {
+-      const data = await getDailyAttendance(dateStr, barbers);
+-      setAttendance(data);
+-    } catch {
+-      setMessage('Could not load attendance.');
+-    } finally {
+-      setLoading(false);
+-    }
+-  }, [dateStr, barbers]);
++  useEffect(() => {
++    dirty.current = false;
++    baseline.current = null;
++    setConflict(false);
++    setAttendance(null);
++  }, [dateStr]);
+ 
+   useEffect(() => {
+-    loadData();
+-  }, [loadData]);
++    if (!liveAttendance || liveAttendance.date !== dateStr) return;
++    const version = JSON.stringify(liveAttendance.records);
++    if (dirty.current) {
++      if (baseline.current !== version) setConflict(true);
++      return; // Never replace a status/notes draft while the admin is typing.
++    }
++    baseline.current = version;
++    setAttendance(liveAttendance);
++  }, [liveAttendance, dateStr]);
++
++  const loadData = useCallback(async () => {
++    dirty.current = false;
++    setConflict(false);
++    if (liveAttendance?.date === dateStr) {
++      baseline.current = JSON.stringify(liveAttendance.records);
++      setAttendance(liveAttendance);
++    }
++    await refresh();
++  }, [refresh, liveAttendance, dateStr]);
+ 
+   // Navigate date
+   const changeDate = (days: number) => {
+@@ -105,6 +119,7 @@ export default function AttendanceScreen() {
+   // Update status for a barber
+   const handleStatusChange = (barberId: string, status: AttendanceStatus) => {
+     if (!attendance) return;
++    dirty.current = true;
+     setAttendance({
+       ...attendance,
+       records: attendance.records.map((r) =>
+@@ -116,6 +131,7 @@ export default function AttendanceScreen() {
+   // Update notes
+   const handleNotesChange = (barberId: string, notes: string) => {
+     if (!attendance) return;
++    dirty.current = true;
+     setAttendance({
+       ...attendance,
+       records: attendance.records.map((r) =>
+@@ -127,6 +143,7 @@ export default function AttendanceScreen() {
+   // Mark all present
+   const handleMarkAllPresent = () => {
+     if (!attendance) return;
++    dirty.current = true;
+     setAttendance({
+       ...attendance,
+       records: attendance.records.map((r) => ({ ...r, status: 'PRESENT' })),
+@@ -136,10 +153,13 @@ export default function AttendanceScreen() {
+ 
+   // Save attendance
+   const handleSave = async () => {
+-    if (!attendance) return;
++    if (!attendance || conflict) return;
+     setSaving(true);
+     try {
+       await saveDailyAttendance(attendance);
++      dirty.current = false;
++      setConflict(false);
++      baseline.current = JSON.stringify(attendance.records);
+       setAttendance({ ...attendance, draft: false });
+       setMessage(`Attendance saved for ${formatDate(attendance.date)}.`);
+     } catch {
+@@ -161,6 +181,11 @@ export default function AttendanceScreen() {
+   return (
+     <>
+       <Screen refreshing={loading} onRefresh={loadData}>
++        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
++        {conflict ? <SectionCard title="Attendance changed on another device">
++          <Text>Your unsaved edits were kept. Reload the latest attendance before editing again.</Text>
++          <Button onPress={loadData}>Discard draft and reload</Button>
++        </SectionCard> : null}
+         {/* Date Selector Banner */}
+         <Card style={styles.dateCard}>
+           <Card.Content style={styles.dateContent}>
+@@ -377,7 +402,7 @@ export default function AttendanceScreen() {
+             icon="content-save"
+             onPress={handleSave}
+             loading={saving}
+-            disabled={saving}
++            disabled={saving || conflict}
+             style={styles.saveBtn}
+           >
+             {saving ? 'Saving…' : 'Save Attendance'}
+diff --git a/app/(admin)/barbers.tsx b/app/(admin)/barbers.tsx
+index 826182a..5cc6e02 100644
+--- a/app/(admin)/barbers.tsx
++++ b/app/(admin)/barbers.tsx
+@@ -31,6 +31,7 @@ import { Screen } from '../../components/ui/Screen';
+ import { SectionCard } from '../../components/ui/SectionCard';
+ import { StatusBadge } from '../../components/ui/StatusBadge';
+ import { Colors } from '../../constants/colors';
++import { useCurrentDay } from '../../hooks/useCurrentDay';
+ import { useAppData } from '../../context/AppDataContext';
+ import { useAuth } from '../../hooks/useAuth';
+ import { useTransactions } from '../../hooks/useTransactions';
+@@ -48,12 +49,13 @@ import type { RangePreset } from '../../utils/dateUtils';
+ type StatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE';
+ 
+ export default function BarbersScreen() {
++  const currentDay = useCurrentDay();
+   const { user } = useAuth();
+   const { barbers, settings, refreshBarbers } = useAppData();
+ 
+   const [preset, setPreset] = useState<RangePreset>('MONTH');
+-  const range = useMemo(() => buildRange(preset), [preset]);
+-  const { transactions, loading, refresh } = useTransactions({ from: range.from, to: range.to });
++  const range = useMemo(() => buildRange(preset), [preset, currentDay]);
++  const { transactions, loading, refresh, error: liveError } = useTransactions({ from: range.from, to: range.to });
+ 
+   // FIX: pass the real staff list so each transaction is matched to a current
+   // barber. This prevents duplicate rows (e.g. "Juan Dela Cruz" twice) caused
+@@ -201,6 +203,7 @@ export default function BarbersScreen() {
+   return (
+     <>
+       <Screen refreshing={loading} onRefresh={refresh}>
++        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
+         {/* Header Stats Overview */}
+         <View style={styles.statsRow}>
+           <View style={styles.statMiniCard}>
+diff --git a/app/(admin)/dashboard.tsx b/app/(admin)/dashboard.tsx
+index 60381c3..5a0121c 100644
+--- a/app/(admin)/dashboard.tsx
++++ b/app/(admin)/dashboard.tsx
+@@ -2,10 +2,10 @@
+  * Admin home screen: today's key numbers plus the quick-action shortcuts and
+  * barber performance table for the current period.
+  */
+-import React, { useCallback, useMemo, useState } from 'react';
++import React, { useMemo } from 'react';
+ import { StyleSheet } from 'react-native';
+ import { Button, FAB, Text } from 'react-native-paper';
+-import { useFocusEffect, useRouter } from 'expo-router';
++import { useRouter } from 'expo-router';
+ import { BarberPerformanceTable } from '../../components/dashboard/BarberPerformanceTable';
+ import { TopBarbersList } from '../../components/dashboard/TopBarbersList';
+ import { QuickActions } from '../../components/dashboard/QuickActions';
+@@ -16,55 +16,32 @@ import { SectionCard } from '../../components/ui/SectionCard';
+ import { StatCard, StatGrid } from '../../components/ui/StatCard';
+ import { TransactionCard } from '../../components/transactions/TransactionCard';
+ import { Colors } from '../../constants/colors';
++import { useCurrentDay } from '../../hooks/useCurrentDay';
+ import { useAppData } from '../../context/AppDataContext';
+ import { useAuth } from '../../hooks/useAuth';
+ import { useQueue } from '../../hooks/useQueue';
+ import { useTransactions } from '../../hooks/useTransactions';
+-import { calculateAttendanceSummary, getDailyAttendance } from '../../services/attendanceService';
++import { calculateAttendanceSummary } from '../../services/attendanceService';
+ import { notifyEndOfDaySummary } from '../../services/notificationService';
+-import { AttendanceSummary } from '../../types/attendance';
++import { useDailyAttendance } from '../../hooks/useDailyAttendance';
+ import { buildFinancialReport, formatCurrency } from '../../utils/calculations';
+ import { buildRange, formatDate, isWithinRange } from '../../utils/dateUtils';
+ 
+-/** Local-time YYYY-MM-DD, the same id format the attendance screen saves under. */
+-function todayId(): string {
+-  const d = new Date();
+-  const month = String(d.getMonth() + 1).padStart(2, '0');
+-  const day = String(d.getDate()).padStart(2, '0');
+-  return `${d.getFullYear()}-${month}-${day}`;
+-}
+-
+ export default function AdminDashboard() {
++  const currentDay = useCurrentDay();
+   const router = useRouter();
+   const { user } = useAuth();
+   const { settings, services, barbers } = useAppData();
+-  const today = useMemo(() => buildRange('TODAY'), []);
+-  const month = useMemo(() => buildRange('MONTH'), []);
+-  const { transactions, loading, refresh } = useTransactions({ from: month.from, to: month.to });
++  const today = useMemo(() => buildRange('TODAY'), [currentDay]);
++  const month = useMemo(() => buildRange('MONTH'), [currentDay]);
++  const { transactions, loading, refresh, error: liveError } = useTransactions({ from: month.from, to: month.to });
+   // Same hook as the queue tab, so the counter here and the list there
+   // always agree (it reloads whenever this screen gains focus).
+   const { activeQueue } = useQueue(services);
+ 
+-  // Real attendance for today (this used to be hardcoded 3 / 1 / 4).
+-  const [attendance, setAttendance] = useState<AttendanceSummary | null>(null);
+-  const [attendanceSaved, setAttendanceSaved] = useState(false);
+-
+-  const loadAttendance = useCallback(async () => {
+-    try {
+-      const day = await getDailyAttendance(todayId(), barbers);
+-      setAttendance(calculateAttendanceSummary(day.records));
+-      setAttendanceSaved(!day.draft);
+-    } catch (error) {
+-      console.warn('[BarberSync] Could not load today\'s attendance for the dashboard.', error);
+-    }
+-  }, [barbers]);
+-
+-  useFocusEffect(
+-    React.useCallback(() => {
+-      refresh();
+-      loadAttendance();
+-    }, [refresh, loadAttendance])
+-  );
++  const { attendance: day, error: attendanceError } = useDailyAttendance(currentDay, barbers);
++  const attendance = day ? calculateAttendanceSummary(day.records) : null;
++  const attendanceSaved = !!day && !day.draft;
+ 
+   const todays = useMemo(
+     () => transactions.filter((t) => isWithinRange(t.createdAt, today.from, today.to)),
+@@ -89,6 +66,7 @@ export default function AdminDashboard() {
+   return (
+     <>
+       <Screen refreshing={loading} onRefresh={refresh}>
++        {liveError || attendanceError ? <Text style={{ color: Colors.danger }}>{liveError || attendanceError}</Text> : null}
+         <Text variant="titleLarge" style={styles.greeting}>
+           {settings.shopName}
+         </Text>
+diff --git a/app/(admin)/expenses.tsx b/app/(admin)/expenses.tsx
+index 8749de9..9c6389f 100644
+--- a/app/(admin)/expenses.tsx
++++ b/app/(admin)/expenses.tsx
+@@ -2,7 +2,7 @@
+  * Admin-only expense log (rent, utilities, supplies, etc.), feeding into the
+  * net-profit calculation on the Reports screen.
+  */
+-import React, { useCallback, useEffect, useMemo, useState } from 'react';
++import React, { useMemo, useState } from 'react';
+ import { StyleSheet, View } from 'react-native';
+ import { Button, Chip, Dialog, HelperText, Portal, Text, TextInput } from 'react-native-paper';
+ import { AppSnackbar } from '../../components/ui/AppSnackbar';
+@@ -12,18 +12,20 @@ import { Screen } from '../../components/ui/Screen';
+ import { SectionCard } from '../../components/ui/SectionCard';
+ import { Colors } from '../../constants/colors';
+ import { EXPENSE_CATEGORIES } from '../../constants/config';
++import { useExpenses } from '../../hooks/useExpenses';
++import { useCurrentDay } from '../../hooks/useCurrentDay';
+ import { useAppData } from '../../context/AppDataContext';
+ import { Expense, ExpenseCategory } from '../../types/expense';
+-import { deleteExpense, getExpenses, saveExpense } from '../../services/expenseService';
++import { deleteExpense, saveExpense } from '../../services/expenseService';
+ import { formatCurrency, sum } from '../../utils/calculations';
+ import { buildRange, formatDate, parseInputDate } from '../../utils/dateUtils';
+ import { parseAmount, validateExpense } from '../../utils/validation';
+ 
+ export default function ExpensesScreen() {
++  const currentDay = useCurrentDay();
+   const { settings } = useAppData();
+-  const month = useMemo(() => buildRange('MONTH'), []);
+-  const [expenses, setExpenses] = useState<Expense[]>([]);
+-  const [loading, setLoading] = useState(true);
++  const month = useMemo(() => buildRange('MONTH'), [currentDay]);
++  const { expenses, loading, error: liveError, refresh: load } = useExpenses();
+   const [visible, setVisible] = useState(false);
+   const [editing, setEditing] = useState<Expense | null>(null);
+   const [name, setName] = useState('');
+@@ -35,17 +37,6 @@ export default function ExpensesScreen() {
+   const [saving, setSaving] = useState(false);
+   const [message, setMessage] = useState<string | null>(null);
+ 
+-  const load = useCallback(async () => {
+-    setLoading(true);
+-    try {
+-      setExpenses(await getExpenses());
+-    } finally {
+-      setLoading(false);
+-    }
+-  }, []);
+-
+-  useEffect(() => { load(); }, [load]);
+-
+   const monthExpenses = useMemo(
+     () => expenses.filter((e) => e.date >= month.from && e.date <= month.to),
+     [expenses, month]
+@@ -103,6 +94,7 @@ export default function ExpensesScreen() {
+   return (
+     <>
+       <Screen refreshing={loading} onRefresh={load}>
++        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
+         <SectionCard
+           title="This month"
+           subtitle={`Configured fixed cost: ${formatCurrency(settings.monthlyFixedExpense)}`}
+diff --git a/app/(admin)/reports.tsx b/app/(admin)/reports.tsx
+index 19e0733..39f03af 100644
+--- a/app/(admin)/reports.tsx
++++ b/app/(admin)/reports.tsx
+@@ -14,6 +14,7 @@ import { ReportSummary } from '../../components/reports/ReportSummary';
+ import { Screen } from '../../components/ui/Screen';
+ import { SectionCard } from '../../components/ui/SectionCard';
+ import { Colors } from '../../constants/colors';
++import { useCurrentDay } from '../../hooks/useCurrentDay';
+ import { useAppData } from '../../context/AppDataContext';
+ import { useReport } from '../../hooks/useReport';
+ import { AUTO_MONTHLY_EXPENSE_PREFIX } from '../../services/reportService';
+@@ -46,6 +47,7 @@ const QUICK_RANGES: { label: string; get: () => [Date, Date] }[] = [
+ ];
+ 
+ export default function ReportsScreen() {
++  const currentDay = useCurrentDay();
+   const { settings, barbers } = useAppData();
+   const [preset, setPreset] = useState<Preset>('TODAY');
+   const [customFrom, setCustomFrom] = useState<Date | null>(null);
+@@ -62,7 +64,7 @@ export default function ReportsScreen() {
+       return buildRange('TODAY');
+     }
+     return buildRange(preset);
+-  }, [preset, customFrom, customTo]);
++  }, [preset, customFrom, customTo, currentDay]);
+ 
+   const filters: ReportFilters = useMemo(
+     () => ({
+diff --git a/app/(admin)/revenue-split.tsx b/app/(admin)/revenue-split.tsx
+index 204589a..e5b4ab6 100644
+--- a/app/(admin)/revenue-split.tsx
++++ b/app/(admin)/revenue-split.tsx
+@@ -6,12 +6,12 @@
+ import React, { useMemo, useState } from 'react';
+ import { StyleSheet, View } from 'react-native';
+ import { SegmentedButtons, Text } from 'react-native-paper';
+-import { useFocusEffect } from 'expo-router';
+ import { EmptyState } from '../../components/ui/EmptyState';
+ import { LoadingState } from '../../components/ui/LoadingState';
+ import { Screen } from '../../components/ui/Screen';
+ import { SectionCard } from '../../components/ui/SectionCard';
+ import { Colors } from '../../constants/colors';
++import { useCurrentDay } from '../../hooks/useCurrentDay';
+ import { useAppData } from '../../context/AppDataContext';
+ import { useTransactions } from '../../hooks/useTransactions';
+ import { buildFinancialReport, formatCurrency } from '../../utils/calculations';
+@@ -20,12 +20,12 @@ import type { RangePreset } from '../../utils/dateUtils';
+ 
+ /** Admin-only breakdown of the shop/barber split, transaction by transaction. */
+ export default function RevenueSplitScreen() {
++  const currentDay = useCurrentDay();
+   const { settings } = useAppData();
+   const [preset, setPreset] = useState<RangePreset>('TODAY');
+-  const range = useMemo(() => buildRange(preset), [preset]);
+-  const { transactions, loading, refresh } = useTransactions({ from: range.from, to: range.to });
++  const range = useMemo(() => buildRange(preset), [preset, currentDay]);
++  const { transactions, loading, refresh, error: liveError } = useTransactions({ from: range.from, to: range.to });
+ 
+-  useFocusEffect(React.useCallback(() => { refresh(); }, [refresh]));
+ 
+   const report = useMemo(() => buildFinancialReport(transactions, [], range), [transactions, range]);
+   const completed = useMemo(() => transactions.filter((t) => t.status === 'COMPLETED'), [transactions]);
+@@ -34,6 +34,7 @@ export default function RevenueSplitScreen() {
+ 
+   return (
+     <Screen refreshing={loading} onRefresh={refresh}>
++        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
+       <SegmentedButtons
+         value={preset}
+         onValueChange={(value) => setPreset(value as RangePreset)}
+diff --git a/app/(admin)/services.tsx b/app/(admin)/services.tsx
+index 800f936..29237ce 100644
+--- a/app/(admin)/services.tsx
++++ b/app/(admin)/services.tsx
+@@ -2,7 +2,7 @@
+  * Admin screen for managing the service/price menu barbers choose from when
+  * logging a sale.
+  */
+-import React, { useMemo, useState } from 'react';
++import React, { useState } from 'react';
+ import { StyleSheet, View } from 'react-native';
+ import { Button, FAB, Switch, Text } from 'react-native-paper';
+ import { AppSnackbar } from '../../components/ui/AppSnackbar';
+@@ -12,24 +12,17 @@ import { SectionCard } from '../../components/ui/SectionCard';
+ import { ServiceFormDialog } from '../../components/services/ServiceFormDialog';
+ import { Colors } from '../../constants/colors';
+ import { useAppData } from '../../context/AppDataContext';
+-import { useTransactions } from '../../hooks/useTransactions';
+ import { BarberService, ServiceInput } from '../../types/service';
+-import { deleteService, saveService, setServiceActive } from '../../services/serviceService';
++import { deleteService, saveService, setServiceActive, serviceHasTransactions } from '../../services/serviceService';
+ import { formatCurrency } from '../../utils/calculations';
+ 
+ export default function ServicesScreen() {
+-  const { services, settings, refreshServices } = useAppData();
+-  const { transactions } = useTransactions({});
++  const { services, settings, refreshServices, liveError } = useAppData();
+   const [dialogVisible, setDialogVisible] = useState(false);
+   const [editing, setEditing] = useState<BarberService | null>(null);
+   const [saving, setSaving] = useState(false);
+   const [message, setMessage] = useState<string | null>(null);
+ 
+-  const usedServiceIds = useMemo(
+-    () => new Set(transactions.map((transaction) => transaction.serviceId)),
+-    [transactions]
+-  );
+-
+   const handleSave = async (input: ServiceInput, id?: string) => {
+     setSaving(true);
+     try {
+@@ -52,18 +45,23 @@ export default function ServicesScreen() {
+   };
+ 
+   const handleDelete = async (service: BarberService) => {
+-    if (usedServiceIds.has(service.id)) {
+-      setMessage('This service has transaction history. Deactivate it instead.');
+-      return;
++    try {
++      if (await serviceHasTransactions(service.id)) {
++        setMessage('This service has transaction history. Deactivate it instead.');
++        return;
++      }
++      await deleteService(service.id);
++      await refreshServices();
++      setMessage('Service deleted.');
++    } catch {
++      setMessage('Could not check service history. Connect and try again, or deactivate it.');
+     }
+-    await deleteService(service.id);
+-    await refreshServices();
+-    setMessage('Service deleted.');
+   };
+ 
+   return (
+     <>
+       <Screen>
++        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
+         <SectionCard
+           title="Service menu"
+           subtitle={`Minimum price: ${formatCurrency(settings.minimumServicePrice)}`}
+@@ -83,7 +81,6 @@ export default function ServicesScreen() {
+                   <Text variant="titleSmall" style={styles.name}>{service.name}</Text>
+                   <Text variant="bodySmall" style={styles.muted}>
+                     {formatCurrency(service.price)} · {service.durationMinutes} min
+-                    {usedServiceIds.has(service.id) ? ' · has history' : ''}
+                   </Text>
+                   <View style={styles.actions}>
+                     <Button compact onPress={() => { setEditing(service); setDialogVisible(true); }}>
+@@ -92,7 +89,6 @@ export default function ServicesScreen() {
+                     <Button
+                       compact
+                       textColor={Colors.danger}
+-                      disabled={usedServiceIds.has(service.id)}
+                       onPress={() => handleDelete(service)}
+                     >
+                       Delete
+diff --git a/app/(admin)/settings.tsx b/app/(admin)/settings.tsx
+index a67d973..30975c9 100644
+--- a/app/(admin)/settings.tsx
++++ b/app/(admin)/settings.tsx
+@@ -2,7 +2,7 @@
+  * Admin shop settings screen - shop name, minimum service price, and the
+  * admin's own password change (via ChangePasswordCard).
+  */
+-import React, { useEffect, useState } from 'react';
++import React, { useEffect, useRef, useState } from 'react';
+ import { StyleSheet, View } from 'react-native';
+ import { Button, Divider, HelperText, Switch, Text, TextInput } from 'react-native-paper';
+ import { AppSnackbar } from '../../components/ui/AppSnackbar';
+@@ -20,9 +20,14 @@ import { formatCurrency } from '../../utils/calculations';
+ import { parseAmount } from '../../utils/validation';
+ 
+ export default function SettingsScreen() {
+-  const { settings, updateSettings, pending, syncNow, connection } = useAppData();
++  const { settings, updateSettings, pending, syncNow, connection, liveError } = useAppData();
+   const { user } = useAuth();
+ 
++  const dirty = useRef(false);
++  const baseline = useRef(JSON.stringify(settings));
++  const [conflict, setConflict] = useState(false);
++  const [reloadDraft, setReloadDraft] = useState(0);
++
+   const [shopName, setShopName] = useState(settings.shopName);
+   const [shopAddress, setShopAddress] = useState(settings.shopAddress);
+   const [shopContact, setShopContact] = useState(settings.shopContact);
+@@ -36,6 +41,9 @@ export default function SettingsScreen() {
+   const [message, setMessage] = useState<string | null>(null);
+ 
+   useEffect(() => {
++    const version = JSON.stringify(settings);
++    if (dirty.current) { if (baseline.current !== version) setConflict(true); return; }
++    baseline.current = version;
+     setShopName(settings.shopName);
+     setShopAddress(settings.shopAddress);
+     setShopContact(settings.shopContact);
+@@ -44,9 +52,10 @@ export default function SettingsScreen() {
+     setMonthlyFixed(String(settings.monthlyFixedExpense));
+     setNotifications(settings.notificationsEnabled);
+     setEndOfDay(settings.endOfDaySummaryEnabled);
+-  }, [settings]);
++  }, [settings, reloadDraft]);
+ 
+   const handleSave = async () => {
++    if (conflict) return;
+     const percent = Number(shopPercent);
+     const minimum = parseAmount(minimumPrice);
+     const fixed = parseAmount(monthlyFixed);
+@@ -72,6 +81,8 @@ export default function SettingsScreen() {
+         notificationsEnabled: notifications,
+         endOfDaySummaryEnabled: endOfDay,
+       });
++      dirty.current = false;
++      setConflict(false);
+       setMessage('Settings saved.');
+     } catch {
+       setMessage('Could not save settings.');
+@@ -83,10 +94,15 @@ export default function SettingsScreen() {
+   return (
+     <>
+       <Screen>
++        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
++        {conflict ? <SectionCard title="Settings changed on another device">
++          <Text>Your draft was kept. Reload before editing again.</Text>
++          <Button onPress={() => { dirty.current = false; setConflict(false); setReloadDraft((n) => n + 1); }}>Discard draft and reload</Button>
++        </SectionCard> : null}
+         <SectionCard title="Shop details">
+-          <TextInput label="Shop name" mode="outlined" value={shopName} onChangeText={setShopName} />
+-          <TextInput label="Address" mode="outlined" value={shopAddress} onChangeText={setShopAddress} />
+-          <TextInput label="Contact number" mode="outlined" keyboardType="phone-pad" value={shopContact} onChangeText={setShopContact} />
++          <TextInput label="Shop name" mode="outlined" value={shopName} onChangeText={(value) => { dirty.current = true; setShopName(value); }} />
++          <TextInput label="Address" mode="outlined" value={shopAddress} onChangeText={(value) => { dirty.current = true; setShopAddress(value); }} />
++          <TextInput label="Contact number" mode="outlined" keyboardType="phone-pad" value={shopContact} onChangeText={(value) => { dirty.current = true; setShopContact(value); }} />
+         </SectionCard>
+ 
+         <SectionCard title="Revenue & pricing" subtitle="Used by every calculation in the app.">
+@@ -95,7 +111,7 @@ export default function SettingsScreen() {
+             mode="outlined"
+             keyboardType="numeric"
+             value={shopPercent}
+-            onChangeText={setShopPercent}
++            onChangeText={(value) => { dirty.current = true; setShopPercent(value); }}
+           />
+           <HelperText type="info" visible>
+             Barber receives {100 - (Number(shopPercent) || 0)}%.
+@@ -105,14 +121,14 @@ export default function SettingsScreen() {
+             mode="outlined"
+             keyboardType="numeric"
+             value={minimumPrice}
+-            onChangeText={setMinimumPrice}
++            onChangeText={(value) => { dirty.current = true; setMinimumPrice(value); }}
+           />
+           <TextInput
+             label="Monthly fixed expense (₱)"
+             mode="outlined"
+             keyboardType="numeric"
+             value={monthlyFixed}
+-            onChangeText={setMonthlyFixed}
++            onChangeText={(value) => { dirty.current = true; setMonthlyFixed(value); }}
+           />
+           <HelperText type="info" visible>
+             Rent and utilities, currently {formatCurrency(settings.monthlyFixedExpense)}.
+@@ -122,17 +138,17 @@ export default function SettingsScreen() {
+         <SectionCard title="Notifications">
+           <View style={styles.switchRow}>
+             <Text variant="bodyMedium">Transaction & GCash alerts</Text>
+-            <Switch value={notifications} onValueChange={setNotifications} />
++            <Switch value={notifications} onValueChange={(value) => { dirty.current = true; setNotifications(value); }} />
+           </View>
+           <View style={styles.switchRow}>
+             <Text variant="bodyMedium">End-of-day summary</Text>
+-            <Switch value={endOfDay} onValueChange={setEndOfDay} />
++            <Switch value={endOfDay} onValueChange={(value) => { dirty.current = true; setEndOfDay(value); }} />
+           </View>
+         </SectionCard>
+ 
+         {!!error && <Text style={styles.error}>{error}</Text>}
+ 
+-        <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving} style={styles.save}>
++        <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving || conflict} style={styles.save}>
+           {saving ? 'Saving…' : 'Save settings'}
+         </Button>
+ 
+diff --git a/app/(admin)/transactions.tsx b/app/(admin)/transactions.tsx
+index af3fc4a..286ee94 100644
+--- a/app/(admin)/transactions.tsx
++++ b/app/(admin)/transactions.tsx
+@@ -8,7 +8,7 @@
+ import React, { useMemo, useState } from 'react';
+ import { Image, Linking, StyleSheet, View } from 'react-native';
+ import { Button, Chip, Dialog, Portal, SegmentedButtons, Text } from 'react-native-paper';
+-import { useFocusEffect, useRouter } from 'expo-router';
++import { useRouter } from 'expo-router';
+ import { AppSnackbar } from '../../components/ui/AppSnackbar';
+ import { EmptyState } from '../../components/ui/EmptyState';
+ import { LoadingState } from '../../components/ui/LoadingState';
+@@ -16,6 +16,7 @@ import { Screen } from '../../components/ui/Screen';
+ import { SectionCard } from '../../components/ui/SectionCard';
+ import { TransactionCard } from '../../components/transactions/TransactionCard';
+ import { Colors } from '../../constants/colors';
++import { useCurrentDay } from '../../hooks/useCurrentDay';
+ import { useAppData } from '../../context/AppDataContext';
+ import { useTransactions } from '../../hooks/useTransactions';
+ import { cancelTransaction, setGcashVerification } from '../../services/transactionService';
+@@ -27,10 +28,11 @@ import { buildRange } from '../../utils/dateUtils';
+ type PaymentFilter = 'ALL' | 'CASH' | 'GCASH';
+ 
+ export default function AdminTransactions() {
++  const currentDay = useCurrentDay();
+   const router = useRouter();
+   const { barbers } = useAppData();
+-  const month = useMemo(() => buildRange('MONTH'), []);
+-  const { transactions, loading, refresh } = useTransactions({ from: month.from, to: month.to });
++  const month = useMemo(() => buildRange('MONTH'), [currentDay]);
++  const { transactions, loading, refresh, error: liveError } = useTransactions({ from: month.from, to: month.to });
+ 
+   const [payment, setPayment] = useState<PaymentFilter>('ALL');
+   const [barberId, setBarberId] = useState<string | null>(null);
+@@ -40,7 +42,6 @@ export default function AdminTransactions() {
+   const [busy, setBusy] = useState(false);
+   const [message, setMessage] = useState<string | null>(null);
+ 
+-  useFocusEffect(React.useCallback(() => { refresh(); }, [refresh]));
+ 
+   const filtered = useMemo(
+     () =>
+@@ -103,6 +104,7 @@ export default function AdminTransactions() {
+   return (
+     <>
+       <Screen refreshing={loading} onRefresh={refresh}>
++        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
+         <SectionCard title="Filters" subtitle={`${filtered.length} record(s) - ${formatCurrency(total)} completed`}>
+           <SegmentedButtons
+             value={payment}
+diff --git a/app/(barber)/dashboard.tsx b/app/(barber)/dashboard.tsx
+index 4c7ee1d..7f8e501 100644
+--- a/app/(barber)/dashboard.tsx
++++ b/app/(barber)/dashboard.tsx
+@@ -15,6 +15,7 @@ import { StatCard, StatGrid } from '../../components/ui/StatCard';
+ import { TransactionCard } from '../../components/transactions/TransactionCard';
+ import { QueueCard } from '../../components/queue/QueueCard';
+ import { Colors } from '../../constants/colors';
++import { useCurrentDay } from '../../hooks/useCurrentDay';
+ import { useAppData } from '../../context/AppDataContext';
+ import { useAuth } from '../../hooks/useAuth';
+ import { useQueue } from '../../hooks/useQueue';
+@@ -24,12 +25,13 @@ import { buildRange, formatDate, isWithinRange } from '../../utils/dateUtils';
+ 
+ /** Barbers only ever see their own numbers. */
+ export default function BarberDashboard() {
++  const currentDay = useCurrentDay();
+   const { user } = useAuth();
+   const { services } = useAppData();
+-  const today = useMemo(() => buildRange('TODAY'), []);
+-  const month = useMemo(() => buildRange('MONTH'), []);
++  const today = useMemo(() => buildRange('TODAY'), [currentDay]);
++  const month = useMemo(() => buildRange('MONTH'), [currentDay]);
+   // Live: a service the owner records for this barber appears right away.
+-  const { transactions, loading, refresh } = useLiveTransactions({
++  const { transactions, loading, refresh, error: liveError } = useLiveTransactions({
+     from: month.from,
+     to: month.to,
+     barberId: user?.id,
+@@ -53,6 +55,7 @@ export default function BarberDashboard() {
+   return (
+     <>
+       <Screen refreshing={loading} onRefresh={refresh}>
++        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
+         <Text variant="titleLarge" style={styles.greeting}>Hi, {user?.name}</Text>
+         <Text variant="bodySmall" style={styles.muted}>{formatDate(new Date())}</Text>
+ 
+diff --git a/app/(barber)/earnings.tsx b/app/(barber)/earnings.tsx
+index 3130f41..d395f4d 100644
+--- a/app/(barber)/earnings.tsx
++++ b/app/(barber)/earnings.tsx
+@@ -11,6 +11,7 @@ import { Screen } from '../../components/ui/Screen';
+ import { SectionCard } from '../../components/ui/SectionCard';
+ import { StatCard, StatGrid } from '../../components/ui/StatCard';
+ import { Colors } from '../../constants/colors';
++import { useCurrentDay } from '../../hooks/useCurrentDay';
+ import { useAppData } from '../../context/AppDataContext';
+ import { useAuth } from '../../hooks/useAuth';
+ import { useLiveTransactions } from '../../hooks/useLiveTransactions';
+@@ -20,11 +21,12 @@ import type { RangePreset } from '../../utils/dateUtils';
+ 
+ /** Personal earnings only — no shop revenue, no other barbers. */
+ export default function BarberEarnings() {
++  const currentDay = useCurrentDay();
+   const { user } = useAuth();
+   const { settings } = useAppData();
+   const [preset, setPreset] = useState<RangePreset>('WEEK');
+-  const range = useMemo(() => buildRange(preset), [preset]);
+-  const { transactions, loading, refresh } = useLiveTransactions({
++  const range = useMemo(() => buildRange(preset), [preset, currentDay]);
++  const { transactions, loading, refresh, error: liveError } = useLiveTransactions({
+     from: range.from,
+     to: range.to,
+     barberId: user?.id,
+@@ -55,6 +57,7 @@ export default function BarberEarnings() {
+ 
+   return (
+     <Screen refreshing={loading} onRefresh={refresh}>
++        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
+       <SegmentedButtons
+         value={preset}
+         onValueChange={(value) => setPreset(value as RangePreset)}
+diff --git a/context/AppDataContext.tsx b/context/AppDataContext.tsx
+index 02ef793..8f5f875 100644
+--- a/context/AppDataContext.tsx
++++ b/context/AppDataContext.tsx
+@@ -4,7 +4,7 @@
+  * connection state, and pending-sync count. Centralizing this here means a
+  * screen doesn't each need to independently fetch the same shared data.
+  */
+-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
++import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+ import { DEFAULT_SETTINGS } from '../constants/config';
+ import { AppUser } from '../types/auth';
+ import { BarberService } from '../types/service';
+@@ -16,6 +16,7 @@ import { syncEndOfDaySchedule } from '../services/notificationService';
+ import { getServices } from '../services/serviceService';
+ import { getSettings, saveSettings } from '../services/settingsService';
+ import { pendingCount, syncPendingTransactions } from '../services/syncService';
++import { subscribeSharedData } from '../services/liveData';
+ import { useAuth } from '../hooks/useAuth';
+ 
+ interface AppDataContextValue {
+@@ -25,6 +26,7 @@ interface AppDataContextValue {
+   loading: boolean;
+   connection: ConnectionState;
+   pending: number;
++  liveError: string | null;
+   refreshServices: () => Promise<void>;
+   refreshBarbers: () => Promise<void>;
+   updateSettings: (settings: ShopSettings) => Promise<void>;
+@@ -41,9 +43,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
+   const [loading, setLoading] = useState(true);
+   const [connection, setConnection] = useState<ConnectionState>('ONLINE');
+   const [pending, setPending] = useState(0);
++  const [liveError, setLiveError] = useState<string | null>(null);
++  const revisions = useRef({ services: 0, barbers: 0 });
+ 
+   const refreshServices = useCallback(async () => {
+-    setServices(await getServices(true));
++    const version = revisions.current.services;
++    const rows = await getServices(true);
++    if (version === revisions.current.services) setServices(rows);
+   }, []);
+ 
+   const refreshBarbers = useCallback(async () => {
+@@ -56,7 +62,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
+       setBarbers([]);
+       return;
+     }
+-    setBarbers(await listBarbers());
++    const version = revisions.current.barbers;
++    const rows = await listBarbers();
++    if (version === revisions.current.barbers) setBarbers(rows);
+   }, [user?.role]);
+ 
+   const syncNow = useCallback(async () => {
+@@ -74,30 +82,65 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
+   useEffect(() => {
+     let mounted = true;
+     if (!user) {
++      setSettings(DEFAULT_SETTINGS);
++      setServices([]);
++      setBarbers([]);
++      setLiveError(null);
+       setLoading(false);
+-      return () => {
+-        mounted = false;
+-      };
++      return;
+     }
++    const received = { settings: false, services: false, barbers: false };
+     setLoading(true);
++    setLiveError(null);
++    const stop = subscribeSharedData(user, {
++      settings: (next) => {
++        if (!mounted) return;
++        received.settings = true;
++        setSettings(next);
++      },
++      services: (rows) => {
++        if (!mounted) return;
++        received.services = true;
++        revisions.current.services++;
++        setServices(rows);
++      },
++      barbers: (rows) => {
++        if (!mounted) return;
++        received.barbers = true;
++        revisions.current.barbers++;
++        setBarbers(rows);
++      },
++      error: (error) => {
++        if (!mounted) return;
++        console.warn('[BarberSync] Shared live data failed.', error);
++        setLiveError('Some live updates are unavailable. Check your connection and Firebase permissions.');
++      },
++    });
+     (async () => {
+       try {
+-        const loadedSettings = await getSettings();
++        const [loadedSettings, menu, staff] = await Promise.all([
++          getSettings(true), getServices(true, true),
++          user.role === 'ADMIN' ? listBarbers(true, true) : Promise.resolve([]),
++        ]);
+         if (!mounted) return;
+-        setSettings(loadedSettings);
+-        await syncEndOfDaySchedule(loadedSettings);
+-        await refreshServices();
+-        await refreshBarbers();
++        if (!received.settings) setSettings(loadedSettings);
++        if (!received.services) setServices(menu);
++        if (!received.barbers) setBarbers(staff);
+         setPending(await pendingCount());
+-        setConnection((await isOnline()) ? 'ONLINE' : 'OFFLINE');
++        if (mounted) setConnection((await isOnline()) ? 'ONLINE' : 'OFFLINE');
++      } catch (error) {
++        console.warn('[BarberSync] Initial cached data failed.', error);
+       } finally {
+         if (mounted) setLoading(false);
+       }
+     })();
+-    return () => {
+-      mounted = false;
+-    };
+-  }, [user, refreshServices, refreshBarbers]);
++    return () => { mounted = false; stop(); };
++  }, [user?.id, user?.role]);
++
++  useEffect(() => {
++    if (user) void syncEndOfDaySchedule(settings).catch((error) =>
++      console.warn('[BarberSync] Could not update notification schedule.', error));
++  }, [settings, user?.id]);
+ 
+   useEffect(() => {
+     if (!user) return;
+@@ -122,12 +165,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
+       loading,
+       connection,
+       pending,
++      liveError,
+       refreshServices,
+       refreshBarbers,
+       updateSettings,
+       syncNow,
+     }),
+-    [settings, services, barbers, loading, connection, pending, refreshServices, refreshBarbers, updateSettings, syncNow]
++    [settings, services, barbers, loading, connection, pending, liveError, refreshServices, refreshBarbers, updateSettings, syncNow]
+   );
+ 
+   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;
+diff --git a/hooks/useBarberAvailability.ts b/hooks/useBarberAvailability.ts
+index a104e1a..5e5e33d 100644
+--- a/hooks/useBarberAvailability.ts
++++ b/hooks/useBarberAvailability.ts
+@@ -5,21 +5,12 @@
+  * queue. LATE barbers are still available. A day with no saved attendance
+  * counts everyone as available (the default is "Present").
+  */
+-import { useCallback, useState } from 'react';
+-import { useFocusEffect } from 'expo-router';
++import { useMemo } from 'react';
+ import { useAppData } from '../context/AppDataContext';
+-import { getDailyAttendance } from '../services/attendanceService';
++import { useCurrentDay } from './useCurrentDay';
++import { useDailyAttendance } from './useDailyAttendance';
+ import { AttendanceStatus } from '../types/attendance';
+ 
+-/** Local-date key (YYYY-MM-DD), same format the Attendance screen saves under. */
+-function todayKey(): string {
+-  const now = new Date();
+-  const y = now.getFullYear();
+-  const m = String(now.getMonth() + 1).padStart(2, '0');
+-  const d = String(now.getDate()).padStart(2, '0');
+-  return `${y}-${m}-${d}`;
+-}
+-
+ export type UnavailableStatus = Extract<AttendanceStatus, 'ABSENT' | 'OFF'>;
+ 
+ export function unavailableLabel(status: UnavailableStatus): string {
+@@ -28,27 +19,13 @@ export function unavailableLabel(status: UnavailableStatus): string {
+ 
+ export function useBarberAvailability() {
+   const { barbers } = useAppData();
+-  const [unavailable, setUnavailable] = useState<Record<string, UnavailableStatus>>({});
+-
+-  const refresh = useCallback(async () => {
+-    try {
+-      const attendance = await getDailyAttendance(todayKey(), barbers);
+-      const next: Record<string, UnavailableStatus> = {};
+-      attendance.records.forEach((record) => {
+-        if (record.status === 'ABSENT' || record.status === 'OFF') next[record.barberId] = record.status;
+-      });
+-      setUnavailable(next);
+-    } catch (error) {
+-      console.warn('[BarberSync] Could not load barber availability.', error);
+-    }
+-  }, [barbers]);
+-
+-  // Re-check every time the screen is shown, so attendance changes apply right away.
+-  useFocusEffect(
+-    useCallback(() => {
+-      refresh();
+-    }, [refresh])
+-  );
+-
++  const { attendance, refresh } = useDailyAttendance(useCurrentDay(), barbers);
++  const unavailable = useMemo(() => {
++    const next: Record<string, UnavailableStatus> = {};
++    attendance?.records.forEach((record) => {
++      if (record.status === 'ABSENT' || record.status === 'OFF') next[record.barberId] = record.status;
++    });
++    return next;
++  }, [attendance]);
+   return { unavailable, refresh };
+ }
+diff --git a/hooks/useCurrentDay.ts b/hooks/useCurrentDay.ts
+new file mode 100644
+index 0000000..46def96
+--- /dev/null
++++ b/hooks/useCurrentDay.ts
+@@ -0,0 +1,28 @@
++import { useCallback, useEffect, useState } from 'react';
++import { AppState } from 'react-native';
++import { useFocusEffect } from 'expo-router';
++
++export function localDayKey(date = new Date()): string {
++  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
++}
++
++/** Advance relative ranges at local midnight and after returning from background. */
++export function useCurrentDay() {
++  const [day, setDay] = useState(() => localDayKey());
++  const update = useCallback(() => setDay(localDayKey()), []);
++  useFocusEffect(useCallback(() => { update(); }, [update]));
++  useEffect(() => {
++    let timer: ReturnType<typeof setTimeout>;
++    const schedule = () => {
++      clearTimeout(timer);
++      update();
++      const now = new Date();
++      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
++      timer = setTimeout(schedule, midnight.getTime() - now.getTime() + 50);
++    };
++    schedule();
++    const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') schedule(); });
++    return () => { clearTimeout(timer); subscription.remove(); };
++  }, [update]);
++  return day;
++}
+diff --git a/hooks/useDailyAttendance.ts b/hooks/useDailyAttendance.ts
+new file mode 100644
+index 0000000..2f44c36
+--- /dev/null
++++ b/hooks/useDailyAttendance.ts
+@@ -0,0 +1,17 @@
++import { useCallback } from 'react';
++import { AppUser } from '../types/auth';
++import { DailyAttendance } from '../types/attendance';
++import { getDailyAttendance } from '../services/attendanceService';
++import { subscribeAttendance } from '../services/liveData';
++import { useAuth } from './useAuth';
++import { useRealtimeResource } from './useRealtimeResource';
++
++export function useDailyAttendance(date: string, barbers: AppUser[]) {
++  const { user } = useAuth();
++  const id = user?.id;
++  const load = useCallback((cacheOnly: boolean) => getDailyAttendance(date, barbers, cacheOnly), [date, barbers, id]);
++  const subscribe = useCallback((next: (day: DailyAttendance | null) => void, error: (error: unknown) => void) =>
++    id ? subscribeAttendance(id, date, barbers, next, error) : () => {}, [id, date, barbers]);
++  const result = useRealtimeResource<DailyAttendance | null>(null, load, subscribe);
++  return { attendance: result.data, loading: result.loading, error: result.error, refresh: result.refresh };
++}
+diff --git a/hooks/useExpenses.ts b/hooks/useExpenses.ts
+new file mode 100644
+index 0000000..25dad7d
+--- /dev/null
++++ b/hooks/useExpenses.ts
+@@ -0,0 +1,17 @@
++import { useCallback } from 'react';
++import { Expense } from '../types/expense';
++import { getExpenses } from '../services/expenseService';
++import { subscribeExpenses } from '../services/liveData';
++import { useAuth } from './useAuth';
++import { useRealtimeResource } from './useRealtimeResource';
++
++export function useExpenses(from?: string, to?: string) {
++  const { user } = useAuth();
++  const id = user?.id;
++  const admin = user?.role === 'ADMIN';
++  const load = useCallback((cacheOnly: boolean) => admin ? getExpenses(from, to, cacheOnly) : Promise.resolve([]), [from, to, id, admin]);
++  const subscribe = useCallback((next: (rows: Expense[]) => void, error: (error: unknown) => void) =>
++    id && admin ? subscribeExpenses(id, from, to, next, error) : () => {}, [id, admin, from, to]);
++  const result = useRealtimeResource<Expense[]>([], load, subscribe);
++  return { expenses: result.data, loading: result.loading, error: result.error, refresh: result.refresh };
++}
+diff --git a/hooks/useLiveTransactions.ts b/hooks/useLiveTransactions.ts
+index a2b3e1e..3c7b9a2 100644
+--- a/hooks/useLiveTransactions.ts
++++ b/hooks/useLiveTransactions.ts
+@@ -1,83 +1,2 @@
+-/**
+- * Same result shape as useTransactions, but for a barber's own rows it also
+- * listens to Firestore live (see services/liveTransactions.ts): a service the
+- * owner records shows up here immediately, with no refresh.
+- *
+- * One-time fetch + live listener, the same pairing the queue uses:
+- *  - the fetch covers offline mode and local/demo mode (a listener needs a real
+- *    Firestore connection) and gives the screen something to show before the
+- *    first live snapshot arrives;
+- *  - once a live snapshot has arrived it wins, so a slow fetch that finishes
+- *    afterwards can never overwrite newer live data with older rows.
+- *
+- * The listener stays on while the barber is in the app (instead of
+- * re-subscribing on every tab focus), so after the first read it only receives
+- * the changes.
+- */
+-import { useCallback, useEffect, useState } from 'react';
+-import { Transaction, TransactionFilters } from '../types/transaction';
+-import { subscribeToBarberTransactions } from '../services/liveTransactions';
+-import { getTransactions } from '../services/transactionService';
+-
+-export function useLiveTransactions(filters: TransactionFilters = {}) {
+-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+-  const [loading, setLoading] = useState(true);
+-  const [error, setError] = useState<string | null>(null);
+-
+-  const key = JSON.stringify(filters);
+-
+-  /** Manual refresh (pull-to-refresh): one-time read. Live updates continue after it. */
+-  const refresh = useCallback(async () => {
+-    setLoading(true);
+-    setError(null);
+-    try {
+-      setTransactions(await getTransactions(JSON.parse(key) as TransactionFilters));
+-    } catch (loadError) {
+-      console.warn('[BarberSync] Could not load transactions.', loadError);
+-      setError('Could not load transactions. Pull down to try again.');
+-    } finally {
+-      setLoading(false);
+-    }
+-  }, [key]);
+-
+-  useEffect(() => {
+-    let mounted = true;
+-    let gotLive = false;
+-    const current = JSON.parse(key) as TransactionFilters;
+-    setLoading(true);
+-    setError(null);
+-
+-    (async () => {
+-      try {
+-        const rows = await getTransactions(current);
+-        if (mounted && !gotLive) setTransactions(rows);
+-      } catch (loadError) {
+-        console.warn('[BarberSync] Could not load transactions.', loadError);
+-        if (mounted && !gotLive) setError('Could not load transactions. Pull down to try again.');
+-      } finally {
+-        if (mounted && !gotLive) setLoading(false);
+-      }
+-    })();
+-
+-    const unsubscribe =
+-      current.barberId && current.from && current.to
+-        ? subscribeToBarberTransactions(
+-            { barberId: current.barberId, from: current.from, to: current.to },
+-            (rows) => {
+-              if (!mounted) return;
+-              gotLive = true;
+-              setTransactions(rows);
+-              setLoading(false);
+-              setError(null);
+-            }
+-          )
+-        : () => {};
+-
+-    return () => {
+-      mounted = false;
+-      unsubscribe();
+-    };
+-  }, [key]);
+-
+-  return { transactions, loading, error, refresh, setTransactions };
+-}
++/** Barber and admin screens now share the same role-scoped real-time hook. */
++export { useTransactions as useLiveTransactions } from './useTransactions';
+diff --git a/hooks/useRealtimeResource.ts b/hooks/useRealtimeResource.ts
+new file mode 100644
+index 0000000..a6dc524
+--- /dev/null
++++ b/hooks/useRealtimeResource.ts
+@@ -0,0 +1,64 @@
++import { useCallback, useRef, useState } from 'react';
++import { useFocusEffect } from 'expo-router';
++
++/** Cache-first on focus, then live. Slow reads cannot overwrite a newer snapshot/range. */
++export function useRealtimeResource<T>(
++  initial: T,
++  load: (cacheOnly: boolean) => Promise<T>,
++  subscribe: (next: (value: T) => void, error: (error: unknown) => void) => () => void,
++) {
++  const [data, setData] = useState(initial);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState<string | null>(null);
++  const [retry, setRetry] = useState(0);
++  const epoch = useRef(0);
++  const revision = useRef(0);
++  const request = useRef(0);
++  const focused = useRef(false);
++
++  const read = useCallback(async (cacheOnly: boolean) => {
++    const generation = epoch.current;
++    const version = revision.current;
++    const ticket = ++request.current;
++    setLoading(true);
++    try {
++      const value = await load(cacheOnly);
++      if (focused.current && generation === epoch.current && version === revision.current && ticket === request.current) {
++        setData(value);
++      }
++    } catch (failure) {
++      if (focused.current && generation === epoch.current && version === revision.current && ticket === request.current) {
++        console.warn('[BarberSync] Data read failed.', failure);
++        setError('Could not load data. Pull down to retry.');
++      }
++    } finally {
++      if (focused.current && generation === epoch.current && ticket === request.current) setLoading(false);
++    }
++  }, [load]);
++
++  useFocusEffect(useCallback(() => {
++    focused.current = true;
++    const generation = ++epoch.current;
++    setError(null);
++    void read(true);
++    const stop = subscribe((value) => {
++      if (!focused.current || generation !== epoch.current) return;
++      revision.current++;
++      setData(value);
++      setLoading(false);
++      setError(null);
++    }, (failure) => {
++      if (!focused.current || generation !== epoch.current) return;
++      console.warn('[BarberSync] Live listener failed.', failure);
++      setError('Live updates unavailable. Pull down to retry; displayed data may be stale.');
++      setLoading(false);
++    });
++    return () => { focused.current = false; epoch.current++; stop(); };
++  }, [read, subscribe, retry]));
++
++  const refresh = useCallback(async () => {
++    if (error) setRetry((value) => value + 1);
++    await read(false);
++  }, [read, error]);
++  return { data, setData, loading, error, refresh };
++}
+diff --git a/hooks/useReport.ts b/hooks/useReport.ts
+index 3410577..fa1feca 100644
+--- a/hooks/useReport.ts
++++ b/hooks/useReport.ts
+@@ -1,41 +1,17 @@
+-/**
+- * Loads a financial report (and the transactions/expenses behind it) for a
+- * given filter/date range, re-running whenever the filters change.
+- */
+-import { useCallback, useEffect, useState } from 'react';
+-import { FinancialReport, ReportFilters, ShopSettings } from '../types/report';
+-import { Transaction } from '../types/transaction';
+-import { Expense } from '../types/expense';
+-import { generateReport } from '../services/reportService';
++import { useCallback, useMemo } from 'react';
++import { ReportFilters, ShopSettings } from '../types/report';
++import { buildReportResult } from '../services/reportService';
++import { useTransactions } from './useTransactions';
++import { useExpenses } from './useExpenses';
+ 
++/** Recalculate when either source or shop settings changes, without extra reads. */
+ export function useReport(filters: ReportFilters, settings: ShopSettings) {
+-  const [report, setReport] = useState<FinancialReport | null>(null);
+-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+-  const [expenses, setExpenses] = useState<Expense[]>([]);
+-  const [loading, setLoading] = useState(true);
+-  const [error, setError] = useState<string | null>(null);
+-
++  const tx = useTransactions({ from: filters.from, to: filters.to,
++    barberId: filters.barberId, paymentMethod: filters.paymentMethod });
++  const ex = useExpenses(filters.from, filters.to);
+   const key = JSON.stringify(filters);
+-
+-  const load = useCallback(async () => {
+-    setLoading(true);
+-    setError(null);
+-    try {
+-      const result = await generateReport(JSON.parse(key) as ReportFilters, settings);
+-      setReport(result.report);
+-      setTransactions(result.transactions);
+-      setExpenses(result.expenses);
+-    } catch (reportError) {
+-      console.warn('[BarberSync] Could not build report.', reportError);
+-      setError('Could not build the report. Please try again.');
+-    } finally {
+-      setLoading(false);
+-    }
+-  }, [key, settings]);
+-
+-  useEffect(() => {
+-    load();
+-  }, [load]);
+-
+-  return { report, transactions, expenses, loading, error, refresh: load };
++  const result = useMemo(() => buildReportResult(JSON.parse(key), settings, tx.transactions, ex.expenses),
++    [key, settings, tx.transactions, ex.expenses]);
++  const refresh = useCallback(async () => { await Promise.all([tx.refresh(), ex.refresh()]); }, [tx.refresh, ex.refresh]);
++  return { ...result, loading: tx.loading || ex.loading, error: tx.error || ex.error, refresh };
+ }
+diff --git a/hooks/useTransactions.ts b/hooks/useTransactions.ts
+index f266b41..1b9d16f 100644
+--- a/hooks/useTransactions.ts
++++ b/hooks/useTransactions.ts
+@@ -1,36 +1,22 @@
+-/**
+- * Loads transactions for a screen with the given filters, with a manual
+- * refresh function exposed - wraps services/transactionService.ts's
+- * getTransactions (see that file for the actual read/offline pattern).
+- */
+-import { useCallback, useEffect, useState } from 'react';
++import { useCallback } from 'react';
+ import { Transaction, TransactionFilters } from '../types/transaction';
+-import { getTransactions } from '../services/transactionService';
++import { getTransactions, subscribeTransactions } from '../services/transactionService';
++import { useAuth } from './useAuth';
++import { useRealtimeResource } from './useRealtimeResource';
+ 
+-/** Loads transactions with the given filters and exposes a manual refresh. */
++/** Live selected-range transactions; identical queries share one listener. */
+ export function useTransactions(filters: TransactionFilters = {}) {
+-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+-  const [loading, setLoading] = useState(true);
+-  const [error, setError] = useState<string | null>(null);
+-
++  const { user } = useAuth();
+   const key = JSON.stringify(filters);
+-
+-  const load = useCallback(async () => {
+-    setLoading(true);
+-    setError(null);
+-    try {
+-      setTransactions(await getTransactions(JSON.parse(key) as TransactionFilters));
+-    } catch (loadError) {
+-      console.warn('[BarberSync] Could not load transactions.', loadError);
+-      setError('Could not load transactions. Pull down to try again.');
+-    } finally {
+-      setLoading(false);
+-    }
+-  }, [key]);
+-
+-  useEffect(() => {
+-    load();
+-  }, [load]);
+-
+-  return { transactions, loading, error, refresh: load, setTransactions };
++  const id = user?.id;
++  const role = user?.role;
++  const load = useCallback((cacheOnly: boolean) =>
++    getTransactions(JSON.parse(key), cacheOnly), [key, id, role]);
++  const subscribe = useCallback((next: (rows: Transaction[]) => void, error: (error: unknown) => void) => {
++    if (!id || !role) return () => {};
++    return subscribeTransactions({ id, role }, JSON.parse(key), next, error);
++  }, [key, id, role]);
++  const result = useRealtimeResource<Transaction[]>([], load, subscribe);
++  return { transactions: result.data, setTransactions: result.setData,
++    loading: result.loading, error: result.error, refresh: result.refresh };
+ }
+diff --git a/package.json b/package.json
+index 07c59af..69e1c1c 100644
+--- a/package.json
++++ b/package.json
+@@ -9,7 +9,8 @@
+     "ios": "expo run:ios",
+     "web": "expo start --web",
+     "typecheck": "tsc --noEmit",
+-    "fix-deps": "expo install --fix"
++    "fix-deps": "expo install --fix",
++    "test": "node --test tests/*.test.cjs"
+   },
+   "dependencies": {
+     "@expo/vector-icons": "^15.0.2",
+diff --git a/services/attendanceService.ts b/services/attendanceService.ts
+index b459b5b..55fb474 100644
+--- a/services/attendanceService.ts
++++ b/services/attendanceService.ts
+@@ -15,8 +15,8 @@ import { isOnline } from './networkService';
+  * ----------------------------------
+  * One Firestore document per calendar day, read with getDoc() and written
+  * with setDoc(..., { merge: true }) - a one-time read/write, not a live
+- * listener, so the admin needs to reopen or refresh the screen to see
+- * changes made from another device. Reads fall back to the local
++ * listener in this fallback helper. Screens also subscribe via liveData.ts
++ * to receive changes from other devices. Reads fall back to the local
+  * AsyncStorage cache (see readAttendanceMap/writeAttendanceMap below) when
+  * offline or when Firestore rejects the read, e.g. firestore.rules not yet
+  * covering the attendance/ collection.
+@@ -36,12 +36,12 @@ async function writeAttendanceMap(map: Record<string, DailyAttendance>): Promise
+  */
+ export async function getDailyAttendance(
+   dateStr: string,
+-  barbers: AppUser[]
++  barbers: AppUser[],
++  cacheOnly = false
+ ): Promise<DailyAttendance> {
+-  const activeBarbers = barbers.filter((b) => b.active !== false);
+   let attendance: DailyAttendance | null = null;
+ 
+-  if (firestore && (await isOnline())) {
++  if (!cacheOnly && firestore && (await isOnline())) {
+     try {
+       const snap = await getDoc(doc(firestore, COLLECTIONS.attendance, dateStr));
+       if (snap.exists()) {
+@@ -59,6 +59,12 @@ export async function getDailyAttendance(
+     }
+   }
+ 
++  return reconcileAttendance(dateStr, barbers, attendance);
++}
++
++/** Reconcile both live snapshots and fallback reads, including deleted/missing days. */
++export function reconcileAttendance(dateStr: string, barbers: AppUser[], attendance: DailyAttendance | null): DailyAttendance {
++  const activeBarbers = barbers.filter((b) => b.active !== false);
+   if (attendance) {
+     // Reconcile: ensure any active barbers added after saving are included
+     const existingIds = new Set(attendance.records.map((r) => r.barberId));
+@@ -156,3 +162,15 @@ export function calculateAttendanceSummary(records: BarberAttendanceRecord[]): A
+     total: records.length,
+   };
+ }
++
++let liveCacheWrites: Promise<void> = Promise.resolve();
++export function cacheLiveAttendance(date: string, day: DailyAttendance | null): Promise<void> {
++  const write = liveCacheWrites.catch(() => {}).then(async () => {
++    const map = await readAttendanceMap();
++    if (day) map[date] = day;
++    else delete map[date];
++    await writeAttendanceMap(map);
++  });
++  liveCacheWrites = write;
++  return write;
++}
+diff --git a/services/authService.ts b/services/authService.ts
+index 836c1a8..485bbee 100644
+--- a/services/authService.ts
++++ b/services/authService.ts
+@@ -155,9 +155,9 @@ export async function restoreSession(): Promise<AppUser | null> {
+ }
+ 
+ /** Barber list used by transaction entry, admin management, and report filters. */
+-export async function listBarbers(includeInactive = true): Promise<AppUser[]> {
++export async function listBarbers(includeInactive = true, cacheOnly = false): Promise<AppUser[]> {
+   const { getBarbers } = await import('./barberService');
+-  return getBarbers(includeInactive);
++  return getBarbers(includeInactive, cacheOnly);
+ }
+ 
+ /** Creates or updates the Firestore profile for a user (admin tooling). */
+diff --git a/services/barberService.ts b/services/barberService.ts
+index f06e21f..5e4b0ba 100644
+--- a/services/barberService.ts
++++ b/services/barberService.ts
+@@ -58,10 +58,10 @@ async function cache(barbers: AppUser[]): Promise<void> {
+  * Retrieves all barbers. Admin management screens pass includeInactive = true
+  * so they can reactivate or update staff.
+  */
+-export async function getBarbers(includeInactive = false): Promise<AppUser[]> {
++export async function getBarbers(includeInactive = false, cacheOnly = false): Promise<AppUser[]> {
+   let barbers: AppUser[] = [];
+ 
+-  if (firestore && (await isOnline())) {
++  if (!cacheOnly && firestore && (await isOnline())) {
+     try {
+       const q = query(collection(firestore, COLLECTIONS.users), where('role', '==', 'BARBER'));
+       const snapshot = await getDocs(q);
+diff --git a/services/expenseService.ts b/services/expenseService.ts
+index 5ee1033..93707a2 100644
+--- a/services/expenseService.ts
++++ b/services/expenseService.ts
+@@ -1,4 +1,4 @@
+-import { collection, deleteDoc, doc, getDocs, setDoc } from 'firebase/firestore';
++import { collection, deleteDoc, doc, getDocs, query, where, setDoc } from 'firebase/firestore';
+ import { COLLECTIONS } from '../constants/config';
+ import { Expense, ExpenseInput } from '../types/expense';
+ import { isWithinRange } from '../utils/dateUtils';
+@@ -11,7 +11,8 @@ import { enqueueOp } from './pendingOps';
+  * EXPENSES: READ / WRITE PATTERN
+  * -------------------------------
+  * Admin-only collection (enforced in firestore.rules, not just in the UI).
+- * READS are one-time getDocs() calls, cached locally on success and read
++ * This fallback helper uses getDocs(); screens use liveData.ts listeners.
++ * One-time reads are cached locally on success and read
+  * back from that cache on failure or when offline - same pattern as every
+  * other service in this app, so reports still show a number instead of a
+  * blank screen with no connection.
+@@ -24,13 +25,15 @@ async function cache(expenses: Expense[]): Promise<void> {
+   await writeJson(CACHE_KEY, expenses);
+ }
+ 
+-export async function getExpenses(from?: string, to?: string): Promise<Expense[]> {
++export async function getExpenses(from?: string, to?: string, cacheOnly = false): Promise<Expense[]> {
+   let expenses: Expense[] = [];
+-  if (firestore && (await isOnline())) {
++  if (!cacheOnly && firestore && (await isOnline())) {
+     try {
+-      const snapshot = await getDocs(collection(firestore, COLLECTIONS.expenses));
++      const ref = collection(firestore, COLLECTIONS.expenses);
++      const snapshot = await getDocs(from && to ? query(ref, where('date', '>=', from), where('date', '<=', to)) : ref);
+       expenses = snapshot.docs.map((d) => ({ ...(d.data() as Expense), id: d.id }));
+-      await cache(expenses);
++      const old = await readJson<Expense[]>(CACHE_KEY, []);
++      await cache(from && to ? [...old.filter((e) => !isWithinRange(e.date, from, to)), ...expenses] : expenses);
+     } catch (error) {
+       console.warn('[BarberSync] Falling back to cached expenses.', error);
+       expenses = await readJson<Expense[]>(CACHE_KEY, []);
+@@ -91,3 +94,13 @@ export async function deleteExpense(id: string): Promise<void> {
+ export async function replaceCachedExpenses(expenses: Expense[]): Promise<void> {
+   await cache(expenses);
+ }
++
++let liveCacheWrites: Promise<void> = Promise.resolve();
++export function cacheLiveExpenses(rows: Expense[], from?: string, to?: string): Promise<void> {
++  const write = liveCacheWrites.catch(() => {}).then(async () => {
++    const old = await readJson<Expense[]>(CACHE_KEY, []);
++    await cache(from && to ? [...old.filter((e) => !isWithinRange(e.date, from, to)), ...rows] : rows);
++  });
++  liveCacheWrites = write;
++  return write;
++}
+diff --git a/services/liveData.ts b/services/liveData.ts
+new file mode 100644
+index 0000000..c8a08d4
+--- /dev/null
++++ b/services/liveData.ts
+@@ -0,0 +1,79 @@
++import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
++import { COLLECTIONS, DEFAULT_SETTINGS, SETTINGS_DOC_ID, STORAGE_KEYS } from '../constants/config';
++import { AppUser } from '../types/auth';
++import { DailyAttendance } from '../types/attendance';
++import { Expense } from '../types/expense';
++import { ShopSettings } from '../types/report';
++import { BarberService } from '../types/service';
++import { createSubscriptionPool } from '../utils/sharedSubscription';
++import { rowsFromSnapshot } from '../utils/snapshots';
++import { cacheLiveExpenses } from './expenseService';
++import { firestore } from './firebase';
++import { writeJson } from './localStore';
++import { reconcileAttendance, cacheLiveAttendance } from './attendanceService';
++
++const expensesPool = createSubscriptionPool<Expense[]>();
++const attendancePool = createSubscriptionPool<DailyAttendance | null>();
++
++export function subscribeExpenses(userId: string, from: string | undefined, to: string | undefined,
++  next: (rows: Expense[]) => void, error: (error: unknown) => void) {
++  if (!firestore) return () => {};
++  const ref = collection(firestore, COLLECTIONS.expenses);
++  const scoped = from && to ? query(ref, where('date', '>=', from), where('date', '<=', to)) : ref;
++  return expensesPool(JSON.stringify([userId, from, to]), (emit, fail) => onSnapshot(scoped,
++    { includeMetadataChanges: true }, (snap) => {
++      const rows = rowsFromSnapshot<Expense>(snap);
++      if (rows) {
++        emit(rows.sort((a, b) => b.date.localeCompare(a.date)));
++        void cacheLiveExpenses(rows, from, to).catch(fail);
++      }
++    }, fail), next, error);
++}
++
++export function subscribeAttendance(userId: string, date: string, barbers: AppUser[],
++  next: (day: DailyAttendance) => void, error: (error: unknown) => void) {
++  if (!firestore) return () => {};
++  return attendancePool(JSON.stringify([userId, date]), (emit, fail) => onSnapshot(
++    doc(firestore!, COLLECTIONS.attendance, date), { includeMetadataChanges: true }, (snap) => {
++      if (snap.metadata.fromCache) return;
++      const day = snap.exists() ? snap.data() as DailyAttendance : null;
++      emit(day);
++      void cacheLiveAttendance(date, day).catch(fail);
++    }, fail), (day) => next(reconcileAttendance(date, barbers, day)), error);
++}
++
++/** App-wide listeners: only the admin can list staff. Clean up together at logout. */
++export function subscribeSharedData(user: AppUser, callbacks: {
++  services: (rows: BarberService[]) => void;
++  barbers: (rows: AppUser[]) => void;
++  settings: (settings: ShopSettings) => void;
++  error: (error: unknown) => void;
++}) {
++  if (!firestore) return () => {};
++  const stops = [
++    onSnapshot(collection(firestore, COLLECTIONS.services), { includeMetadataChanges: true }, (snap) => {
++      const rows = rowsFromSnapshot<BarberService>(snap);
++      if (!rows) return;
++      rows.sort((a, b) => a.name.localeCompare(b.name));
++      callbacks.services(rows);
++      void writeJson(STORAGE_KEYS.cachedServices, rows).catch(callbacks.error);
++    }, callbacks.error),
++    onSnapshot(doc(firestore, COLLECTIONS.settings, SETTINGS_DOC_ID), { includeMetadataChanges: true }, (snap) => {
++      if (snap.metadata.fromCache) return;
++      const settings = { ...DEFAULT_SETTINGS, ...(snap.exists() ? snap.data() : {}) } as ShopSettings;
++      callbacks.settings(settings);
++      void writeJson(STORAGE_KEYS.cachedSettings, settings).catch(callbacks.error);
++    }, callbacks.error),
++  ];
++  if (user.role === 'ADMIN') stops.push(onSnapshot(
++    query(collection(firestore, COLLECTIONS.users), where('role', '==', 'BARBER')),
++    { includeMetadataChanges: true }, (snap) => {
++      const rows = rowsFromSnapshot<AppUser>(snap);
++      if (!rows) return;
++      const normalized = rows.map((b) => ({ ...b, name: b.name ?? 'Barber', active: b.active ?? true }));
++      normalized.sort((a, b) => a.name.localeCompare(b.name));
++      callbacks.barbers(normalized);
++      void writeJson(STORAGE_KEYS.cachedBarbers, normalized).catch(callbacks.error);
++    }, callbacks.error));
++  return () => stops.forEach((stop) => stop());
++}
+diff --git a/services/liveTransactions.ts b/services/liveTransactions.ts
+index 840145f..7801353 100644
+--- a/services/liveTransactions.ts
++++ b/services/liveTransactions.ts
+@@ -1,68 +1,8 @@
+-/**
+- * LIVE TRANSACTIONS FOR ONE BARBER
+- * ---------------------------------
+- * Same idea as subscribeToQueue in queueService.ts: a Firestore onSnapshot()
+- * listener instead of a one-time read. When the owner completes a customer and
+- * records the service, the new transaction reaches this barber's phone right
+- * away - commission, "services today" and the services list all update without
+- * a refresh.
+- *
+- * Scoped to one barber on purpose: the query carries where('barberId', '==',
+- * uid), which is exactly what firestore.rules require for a barber to read
+- * (a barber can never listen to anyone else's transactions). Together with the
+- * createdAt range and ordering it uses the barberId + createdAt composite
+- * index that is already declared in firestore.indexes.json.
+- *
+- * Does nothing when Firestore is not configured (local/demo mode); the caller
+- * keeps using its one-time fetch there.
+- */
+-import { collection, limit as fsLimit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+-import { COLLECTIONS } from '../constants/config';
++/** Compatibility wrapper for the original barber listener API. */
+ import { Transaction } from '../types/transaction';
+-import { rowsFromSnapshot } from '../utils/snapshots';
+-import { firestore } from './firebase';
+-
+-/** Safety cap for one barber's rows in one range (a month is far below this). */
+-const LIVE_LIMIT = 1000;
+-
+-export interface BarberTransactionRange {
+-  barberId: string;
+-  /** ISO timestamps, inclusive. */
+-  from: string;
+-  to: string;
+-}
+-
+-/** Returns an unsubscribe function - call it when the screen goes away. */
+-export function subscribeToBarberTransactions(
+-  range: BarberTransactionRange,
+-  onChange: (transactions: Transaction[]) => void,
+-  onError?: (error: unknown) => void
+-): () => void {
+-  if (!firestore) return () => {};
+-  const from = new Date(range.from);
+-  const to = new Date(range.to);
+-  if (!range.barberId || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+-    return () => {};
+-  }
+-
+-  const scoped = query(
+-    collection(firestore, COLLECTIONS.transactions),
+-    where('barberId', '==', range.barberId),
+-    where('createdAt', '>=', from.toISOString()),
+-    where('createdAt', '<=', to.toISOString()),
+-    orderBy('createdAt', 'desc'),
+-    fsLimit(LIVE_LIMIT)
+-  );
+-
+-  return onSnapshot(
+-    scoped,
+-    (snapshot) => {
+-      const rows = rowsFromSnapshot<Transaction>(snapshot);
+-      if (rows) onChange(rows);
+-    },
+-    (error) => {
+-      console.warn('[BarberSync] Live transactions listener errored.', error);
+-      onError?.(error);
+-    }
+-  );
++import { subscribeTransactions } from './transactionService';
++export interface BarberTransactionRange { barberId: string; from: string; to: string; }
++export function subscribeToBarberTransactions(range: BarberTransactionRange,
++  next: (rows: Transaction[]) => void, error: (error: unknown) => void = console.warn) {
++  return subscribeTransactions({ id: range.barberId, role: 'BARBER' }, range, next, error);
+ }
+diff --git a/services/reportService.ts b/services/reportService.ts
+index 75f4ebf..c14aee4 100644
+--- a/services/reportService.ts
++++ b/services/reportService.ts
+@@ -1,10 +1,4 @@
+-/**
+- * Combines transactions + expenses for a date range into one FinancialReport
+- * via utils/calculations.ts. Inherits the 500-record cap from
+- * getTransactions() in transactionService.ts - a very high-volume period
+- * could theoretically have older records excluded before the date filter is
+- * even applied.
+- */
++/** Financial reports built from complete selected-range sources. */
+ import { Expense } from '../types/expense';
+ import { FinancialReport, ReportFilters, ShopSettings } from '../types/report';
+ import { Transaction } from '../types/transaction';
+@@ -89,22 +83,20 @@ export async function generateReport(
+   );
+   const recorded = await getExpenses(filters.from, filters.to);
+ 
+-  // A barber-specific or payment-specific report is a slice of revenue, so
+-  // shop-wide expenses are excluded to avoid a misleading net income.
++  return buildReportResult(filters, settings, transactions, recorded);
++}
++
++/** Pure report calculation, shared by one-time export and live screen hooks. */
++export function buildReportResult(filters: ReportFilters, settings: ShopSettings,
++  rows: Transaction[], recorded: Expense[]): ReportResult {
++  const transactions = applyFilters(rows, filters);
+   const includeExpenses = !filters.barberId && !filters.paymentMethod;
+   const expenses = includeExpenses
+-    ? [
+-        ...recorded,
+-        ...autoMonthlyExpenses(filters.from, filters.to, settings.monthlyFixedExpense, recorded),
+-      ]
++    ? [...recorded, ...autoMonthlyExpenses(filters.from, filters.to, settings.monthlyFixedExpense, recorded)]
+     : recorded;
+-
+   const report = buildFinancialReport(transactions, includeExpenses ? expenses : [], {
+-    from: filters.from,
+-    to: filters.to,
+-    label: filters.label,
++    from: filters.from, to: filters.to, label: filters.label,
+   });
+-
+   return { report, transactions, expenses };
+ }
+ 
+diff --git a/services/serviceService.ts b/services/serviceService.ts
+index 7289728..8bd0024 100644
+--- a/services/serviceService.ts
++++ b/services/serviceService.ts
+@@ -1,4 +1,4 @@
+-import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
++import { collection, deleteDoc, doc, getDocs, query, where, limit, setDoc, updateDoc } from 'firebase/firestore';
+ import { COLLECTIONS, STORAGE_KEYS } from '../constants/config';
+ import { BarberService, ServiceInput } from '../types/service';
+ import { firestore } from './firebase';
+@@ -10,7 +10,8 @@ import { isOnline } from './networkService';
+  * -------------------------------------------------------
+  * Any signed-in user can READ this collection (barbers need prices to log a
+  * sale) but only an admin can WRITE to it - enforced in firestore.rules.
+- * Reads are one-time getDocs() calls with an AsyncStorage cache fallback,
++ * This helper uses getDocs() with a cache fallback; AppDataContext also
++ * listens through liveData.ts for shared menu changes.
+  * same pattern as the rest of the app. Writes use setDoc(..., { merge: true })
+  * for create/update and deleteDoc() for removal, with updateDoc() used for
+  * the narrower active/inactive toggle.
+@@ -26,9 +27,9 @@ async function cache(services: BarberService[]): Promise<void> {
+   await writeJson(STORAGE_KEYS.cachedServices, services);
+ }
+ 
+-export async function getServices(includeInactive = false): Promise<BarberService[]> {
++export async function getServices(includeInactive = false, cacheOnly = false): Promise<BarberService[]> {
+   let services: BarberService[] = [];
+-  if (firestore && (await isOnline())) {
++  if (!cacheOnly && firestore && (await isOnline())) {
+     try {
+       const snapshot = await getDocs(collection(firestore, COLLECTIONS.services));
+       services = snapshot.docs.map((d) => ({ ...(d.data() as BarberService), id: d.id }));
+@@ -110,3 +111,14 @@ export async function deleteService(id: string): Promise<void> {
+ export async function replaceCachedServices(services: BarberService[]): Promise<void> {
+   await cache(services);
+ }
++
++/** Check history at deletion time, not via a costly full-history listener. */
++export async function serviceHasTransactions(id: string): Promise<boolean> {
++  const cached = await readJson<{ serviceId: string }[]>(STORAGE_KEYS.cachedTransactions, []);
++  if (cached.some((t) => t.serviceId === id)) return true;
++  if (!firestore) return false;
++  if (!(await isOnline())) throw new Error('Connect to check service history before deleting.');
++  const snap = await getDocs(query(collection(firestore, COLLECTIONS.transactions),
++    where('serviceId', '==', id), limit(1)));
++  return !snap.empty;
++}
+diff --git a/services/settingsService.ts b/services/settingsService.ts
+index d801c7f..d9d66e9 100644
+--- a/services/settingsService.ts
++++ b/services/settingsService.ts
+@@ -11,14 +11,15 @@ import { isOnline } from './networkService';
+  * Single document (settings/shop) holding things like the shop's split
+  * percentage and minimum service price. Any signed-in user can READ it
+  * (needed on-device to validate a sale before it's even sent), but only an
+- * admin can WRITE to it. One-time getDoc()/setDoc() calls, with the usual
++ * admin can WRITE to it. AppDataContext subscribes through liveData.ts;
++ * these fallback helpers use getDoc()/setDoc(), with the usual
+  * AsyncStorage cache fallback for offline/failed reads. Firestore's own
+  * security rules independently re-check the split percentage against this
+  * document on every transaction write, so even a tampered client can't
+  * submit a sale with the wrong split.
+  */
+-export async function getSettings(): Promise<ShopSettings> {
+-  if (firestore && (await isOnline())) {
++export async function getSettings(cacheOnly = false): Promise<ShopSettings> {
++  if (!cacheOnly && firestore && (await isOnline())) {
+     try {
+       const snapshot = await getDoc(doc(firestore, COLLECTIONS.settings, SETTINGS_DOC_ID));
+       if (snapshot.exists()) {
+diff --git a/services/transactionService.ts b/services/transactionService.ts
+index 2b08489..58c9d64 100644
+--- a/services/transactionService.ts
++++ b/services/transactionService.ts
+@@ -10,7 +10,8 @@ import {
+   type DocumentData,
+   type UpdateData,
+   where,
+-  limit as fsLimit,
++  onSnapshot,
++  type QueryConstraint,
+ } from 'firebase/firestore';
+ import { COLLECTIONS, STORAGE_KEYS } from '../constants/config';
+ import { AppUser } from '../types/auth';
+@@ -22,21 +23,21 @@ import {
+   TransactionStatus,
+ } from '../types/transaction';
+ import { calculateRevenueSplit, resolveSplitPercentage, round2 } from '../utils/calculations';
+-import { isWithinRange } from '../utils/dateUtils';
+ import { firestore } from './firebase';
+ import { createLocalId, readJson, writeJson } from './localStore';
+ import { isOnline } from './networkService';
+ import { enqueueOp } from './pendingOps';
+-import { getGcashScreenshotBase64 } from './storageService';
++import { createSubscriptionPool } from '../utils/sharedSubscription';
++import { rowsFromSnapshot } from '../utils/snapshots';
+ 
+ /**
+  * TRANSACTIONS: READ / WRITE PATTERN
+  * -----------------------------------
+- * READS (getTransactions): one-time Firestore reads via getDocs(), not a live
+- * onSnapshot() listener. A screen only sees fresh data when it re-fetches
+- * (on focus, or pull-to-refresh) - another device's changes don't appear here
+- * automatically. On success the result is cached to AsyncStorage; on failure
+- * (offline, or a permissions error) the last cached copy is returned instead.
++ * READS: screens use subscribeTransactions for live, role/date-scoped data.
++ * getTransactions remains available for manual refresh and cache/demo fallback.
++ * Date bounds are applied on the server before reading; there is no row cap
++ * silently truncating financial totals. Full-history calls are intentionally
++ * uncapped (the services screen uses history to prevent deleting used services).
+  *
+  * WRITES (pushTransaction / pushOrQueueUpdate): every write uses setDoc() with
+  * an ID generated on the device (see createLocalId in localStore.ts), not
+@@ -94,7 +95,7 @@ export function buildTransaction(input: TransactionInput, settings: ShopSettings
+ }
+ 
+ async function cacheTransactions(transactions: Transaction[]): Promise<void> {
+-  await writeJson(STORAGE_KEYS.cachedTransactions, transactions.slice(0, 500));
++  await writeJson(STORAGE_KEYS.cachedTransactions, transactions);
+ }
+ 
+ export async function getPendingTransactions(): Promise<Transaction[]> {
+@@ -172,41 +173,73 @@ function mergeById(remote: Transaction[], pending: Transaction[]): Transaction[]
+   );
+ }
+ 
+-/** Loads transactions, remotely when possible and from cache when offline. */
+-export async function getTransactions(filters: TransactionFilters = {}): Promise<Transaction[]> {
+-  let base: Transaction[] = [];
+-  const online = await isOnline();
++/** Same query for reads and listeners. Never trust a barberId supplied by a barber. */
++export function transactionConstraints(user: Pick<AppUser, 'id' | 'role'> | null,
++  filters: TransactionFilters): QueryConstraint[] {
++  const constraints: QueryConstraint[] = [];
++  const barberId = user && user.role !== 'ADMIN' ? user.id : filters.barberId;
++  if (barberId) constraints.push(where('barberId', '==', barberId));
++  if (filters.from) constraints.push(where('createdAt', '>=', new Date(filters.from).toISOString()));
++  if (filters.to) constraints.push(where('createdAt', '<=', new Date(filters.to).toISOString()));
++  constraints.push(orderBy('createdAt', 'desc'));
++  return constraints;
++}
+ 
+-  if (online && firestore) {
++/** Merge a bounded read into the offline history instead of replacing other periods. */
++let remoteCacheWrites: Promise<void> = Promise.resolve();
++function cacheRemoteRows(rows: Transaction[], filters: TransactionFilters): Promise<void> {
++  const write = remoteCacheWrites.catch(() => {}).then(async () => {
++    const cached = await readJson<Transaction[]>(STORAGE_KEYS.cachedTransactions, []);
++    const pending = await getPendingTransactions();
++    const outside = cached.filter((t) => !applyFilters([t], filters).length);
++    await cacheTransactions(mergeById([...rows, ...outside], pending));
++  });
++  remoteCacheWrites = write;
++  return write;
++}
++
++export async function getTransactions(filters: TransactionFilters = {}, cacheOnly = false): Promise<Transaction[]> {
++  const user = await currentUser();
++  const scopedFilters = user && user.role !== 'ADMIN' ? { ...filters, barberId: user.id } : filters;
++  let base = await readJson<Transaction[]>(STORAGE_KEYS.cachedTransactions, []);
++  if (!cacheOnly && firestore && (await isOnline())) {
+     try {
+-      // A barber may only read their own rows. Firestore rejects any query it
+-      // cannot prove is allowed, so the barberId filter has to be part of the
+-      // query itself - without it every barber got permission-denied and
+-      // silently fell back to a stale cache.
+-      const user = await currentUser();
+-      const transactionsRef = collection(firestore, COLLECTIONS.transactions);
+-      const scoped =
+-        user && user.role !== 'ADMIN'
+-          ? query(
+-              transactionsRef,
+-              where('barberId', '==', user.id),
+-              orderBy('createdAt', 'desc'),
+-              fsLimit(500)
+-            )
+-          : query(transactionsRef, orderBy('createdAt', 'desc'), fsLimit(500));
+-      const snapshot = await getDocs(scoped);
++      const snapshot = await getDocs(query(collection(firestore, COLLECTIONS.transactions),
++        ...transactionConstraints(user, scopedFilters)));
+       base = snapshot.docs.map((d) => ({ ...(d.data() as Transaction), id: d.id }));
+-      await cacheTransactions(base);
++      await cacheRemoteRows(base, scopedFilters);
+     } catch (error) {
+       console.warn('[BarberSync] Falling back to cached transactions.', error);
+-      base = await readJson<Transaction[]>(STORAGE_KEYS.cachedTransactions, []);
+     }
+-  } else {
+-    base = await readJson<Transaction[]>(STORAGE_KEYS.cachedTransactions, []);
+   }
++  return applyFilters(mergeById(base, await getPendingTransactions()), scopedFilters);
++}
+ 
+-  const pending = await getPendingTransactions();
+-  return applyFilters(mergeById(base, pending), filters);
++const transactionPool = createSubscriptionPool<Transaction[]>();
++export function subscribeTransactions(user: Pick<AppUser, 'id' | 'role'>, filters: TransactionFilters,
++  next: (rows: Transaction[]) => void, error: (error: unknown) => void): () => void {
++  if (!firestore) return () => {};
++  const scope = user.role === 'ADMIN' ? filters : { ...filters, barberId: user.id };
++  // Payment/status are client filters to avoid extra composite indexes and subscriptions.
++  const queryScope = { from: scope.from, to: scope.to, barberId: scope.barberId };
++  const key = JSON.stringify([user.id, user.role, queryScope]);
++  return transactionPool(key, (emit, fail) => {
++    let active = true;
++    let version = 0;
++    const stop = onSnapshot(query(collection(firestore!, COLLECTIONS.transactions),
++      ...transactionConstraints(user, queryScope)), { includeMetadataChanges: true }, (snap) => {
++      const rows = rowsFromSnapshot<Transaction>(snap);
++      if (!rows) return;
++      const ticket = ++version;
++      // Deliver immediately, then add pending offline sales. Guard async processing.
++      emit(rows);
++      void getPendingTransactions().then((pending) => {
++        if (active && ticket === version) emit(applyFilters(mergeById(rows, pending), queryScope));
++      }).catch(fail);
++      void cacheRemoteRows(rows, queryScope).catch(fail);
++    }, fail);
++    return () => { active = false; version++; stop(); };
++  }, (rows) => next(applyFilters(rows, scope)), error);
+ }
+ 
+ export function applyFilters(
+@@ -214,7 +247,8 @@ export function applyFilters(
+   filters: TransactionFilters
+ ): Transaction[] {
+   return transactions.filter((t) => {
+-    if (filters.from && filters.to && !isWithinRange(t.createdAt, filters.from, filters.to)) return false;
++    if (filters.from && t.createdAt < new Date(filters.from).toISOString()) return false;
++    if (filters.to && t.createdAt > new Date(filters.to).toISOString()) return false;
+     if (filters.barberId && t.barberId !== filters.barberId) return false;
+     if (filters.paymentMethod && t.paymentMethod !== filters.paymentMethod) return false;
+     if (filters.status && t.status !== filters.status) return false;
+diff --git a/tests/realtime.test.cjs b/tests/realtime.test.cjs
+new file mode 100644
+index 0000000..a4336ba
+--- /dev/null
++++ b/tests/realtime.test.cjs
+@@ -0,0 +1,226 @@
++const test = require('node:test');
++const assert = require('node:assert/strict');
++const path = require('node:path');
++const fs = require('node:fs');
++const ts = require('typescript');
++const root = path.resolve(__dirname, '..');
++const tick = () => new Promise((resolve) => setImmediate(resolve));
++const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
++
++// Load production TypeScript with narrow native/backend doubles; no Firebase credentials needed.
++function fixture(extras = {}) {
++  const modules = new Map();
++  const store = new Map();
++  const listeners = [];
++  const reads = [];
++  let remote = [];
++  const firebase = {
++    collection: (_db, name) => ({ collection: name }),
++    doc: (_db, collection, id) => ({ collection, id }),
++    where: (field, op, value) => ({ kind: 'where', field, op, value }),
++    orderBy: (field, direction) => ({ kind: 'order', field, direction }),
++    limit: (value) => ({ kind: 'limit', value }),
++    query: (ref, ...constraints) => ({ ...ref, constraints }),
++    onSnapshot: (ref, options, next, error) => {
++      const listener = { ref, options, next, error, stopped: false };
++      listeners.push(listener);
++      return () => { listener.stopped = true; };
++    },
++    getDocs: async (ref) => {
++      reads.push(ref);
++      let rows = remote.filter((row) => (ref.constraints ?? []).every((c) => c.kind !== 'where' ||
++        (c.op === '==' ? row[c.field] === c.value : c.op === '>=' ? row[c.field] >= c.value : row[c.field] <= c.value)));
++      const cap = ref.constraints?.find((c) => c.kind === 'limit');
++      if (cap) rows = rows.slice(0, cap.value);
++      return { docs: rows.map((row) => ({ id: row.id, data: () => row })), empty: !rows.length };
++    },
++  };
++  const mocks = {
++    'firebase/firestore': firebase,
++    [path.join(root, 'services/firebase.ts')]: { firestore: {} },
++    [path.join(root, 'services/localStore.ts')]: {
++      readJson: async (key, fallback) => store.has(key) ? structuredClone(store.get(key)) : fallback,
++      writeJson: async (key, value) => { store.set(key, structuredClone(value)); },
++      createLocalId: () => 'local-test',
++    },
++    [path.join(root, 'services/networkService.ts')]: { isOnline: async () => true },
++    [path.join(root, 'services/pendingOps.ts')]: { enqueueOp: async () => {} },
++    ...extras,
++  };
++  function load(name, from = path.join(root, 'test-entry.cjs')) {
++    let resolved = name;
++    if (name.startsWith('.')) {
++      resolved = path.resolve(path.dirname(from), name);
++      if (!path.extname(resolved)) resolved += '.ts';
++    }
++    if (resolved in mocks) return mocks[resolved];
++    if (!path.isAbsolute(resolved)) return require(resolved);
++    if (modules.has(resolved)) return modules.get(resolved).exports;
++    const module = { exports: {} };
++    modules.set(resolved, module);
++    const code = ts.transpileModule(fs.readFileSync(resolved, 'utf8'), {
++      compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
++    }).outputText;
++    new Function('require', 'module', 'exports', code)((name) => load(name, resolved), module, module.exports);
++    return module.exports;
++  }
++  return { load, store, listeners, reads, setRemote: (rows) => { remote = rows; },
++    snapshot: (listener, rows, fromCache = false) => listener.next({ metadata: { fromCache }, docs: rows.map((row) => ({ id: row.id, data: () => row })) }) };
++}
++const range = { from: '2026-10-01T00:00:00.000Z', to: '2026-10-31T23:59:59.999Z' };
++const admin = { id: 'admin', role: 'ADMIN' };
++function sale(id, overrides = {}) {
++  return { id, createdAt: '2026-10-10T10:00:00.000Z', barberId: 'b1', barberName: 'One', serviceId: 'cut',
++    customerName: 'Customer', serviceName: 'Cut', amount: 100, shopShare: 50, barberShare: 50,
++    paymentMethod: 'CASH', status: 'COMPLETED', gcashVerified: false, synced: true, ...overrides };
++}
++
++test('barber queries force own UID, apply server-side range, and do not cap rows', () => {
++  const f = fixture(); const tx = f.load('./services/transactionService');
++  const constraints = tx.transactionConstraints({ id: 'b1', role: 'BARBER' }, { ...range, barberId: 'b2' });
++  assert.equal(constraints.find((c) => c.field === 'barberId').value, 'b1');
++  assert.equal(constraints.filter((c) => c.field === 'createdAt' && c.kind === 'where').length, 2);
++  assert.equal(constraints.some((c) => c.kind === 'limit'), false);
++});
++
++test('selected historical reports return more than 500 rows, not the newest global 500', async () => {
++  const f = fixture(); const tx = f.load('./services/transactionService'); const config = f.load('./constants/config');
++  f.store.set(config.STORAGE_KEYS.cachedUser, admin);
++  f.setRemote([...Array.from({ length: 650 }, (_, i) => sale(`oct-${i}`)), sale('nov', { createdAt: '2026-11-01T00:00:00.000Z' })]);
++  const rows = await tx.getTransactions(range);
++  assert.equal(rows.length, 650);
++  assert.equal(f.store.get(config.STORAGE_KEYS.cachedTransactions).length, 650);
++  assert.equal(f.reads[0].constraints.some((c) => c.kind === 'limit'), false);
++});
++
++test('same-range listeners share backend reads and fan out payment filters, updates, deletions', async () => {
++  const f = fixture(); const tx = f.load('./services/transactionService'); const cash = [], gcash = [];
++  const stop1 = tx.subscribeTransactions(admin, { ...range, paymentMethod: 'CASH' }, (rows) => cash.push(rows), assert.fail);
++  const stop2 = tx.subscribeTransactions(admin, { ...range, paymentMethod: 'GCASH' }, (rows) => gcash.push(rows), assert.fail);
++  assert.equal(f.listeners.length, 1);
++  f.snapshot(f.listeners[0], [sale('cash'), sale('gcash', { paymentMethod: 'GCASH' })]); await tick();
++  assert.deepEqual(cash.at(-1).map((r) => r.id), ['cash']);
++  assert.deepEqual(gcash.at(-1).map((r) => r.id), ['gcash']);
++  f.snapshot(f.listeners[0], [sale('cash', { status: 'CANCELLED' })]); await tick();
++  assert.equal(cash.at(-1)[0].status, 'CANCELLED'); assert.equal(gcash.at(-1).length, 0);
++  stop1(); assert.equal(f.listeners[0].stopped, false);
++  stop2(); assert.equal(f.listeners[0].stopped, true);
++});
++
++test('cache-only empty snapshots do not erase data; confirmed empty server snapshots do', async () => {
++  const f = fixture(); const tx = f.load('./services/transactionService'); const seen = [];
++  const stop = tx.subscribeTransactions(admin, range, (rows) => seen.push(rows), assert.fail);
++  f.snapshot(f.listeners[0], [sale('a')]); await tick();
++  f.snapshot(f.listeners[0], [], true); assert.equal(seen.at(-1).length, 1);
++  f.snapshot(f.listeners[0], []); await tick(); assert.equal(seen.at(-1).length, 0);
++  stop();
++});
++
++test('pending offline sales survive live snapshots without duplicate IDs or out-of-range rows', async () => {
++  const f = fixture(); const tx = f.load('./services/transactionService'); const config = f.load('./constants/config');
++  f.store.set(config.STORAGE_KEYS.pendingTransactions, [sale('pending'), sale('remote'), sale('old', { createdAt: '2025-01-01T00:00:00.000Z' })]);
++  let latest;
++  const stop = tx.subscribeTransactions(admin, range, (rows) => { latest = rows; }, assert.fail);
++  f.snapshot(f.listeners[0], [sale('remote')]); await tick();
++  assert.deepEqual(latest.map((r) => r.id).sort(), ['pending', 'remote']);
++  stop();
++});
++
++test('auth keys isolate listeners and detach each account cleanly', () => {
++  const f = fixture(); const tx = f.load('./services/transactionService');
++  const a = tx.subscribeTransactions(admin, range, () => {}, assert.fail);
++  const b = tx.subscribeTransactions({ id: 'b1', role: 'BARBER' }, range, () => {}, assert.fail);
++  assert.equal(f.listeners.length, 2); a(); b();
++  assert.ok(f.listeners.every((l) => l.stopped));
++});
++
++test('report recalculation responds to sales, cancellation, expenses and fixed-cost settings', () => {
++  const f = fixture(); const { buildReportResult } = f.load('./services/reportService');
++  const { DEFAULT_SETTINGS } = f.load('./constants/config');
++  const filters = { from: '2026-10-01T00:00:00.000Z', to: '2026-10-31T23:59:59.999Z', label: 'October' };
++  const settings = { ...DEFAULT_SETTINGS, monthlyFixedExpense: 0 };
++  const ex = [{ id: 'ex', amount: 10, category: 'SUPPLIES', date: '2026-10-10T00:00:00.000Z' }];
++  assert.equal(buildReportResult(filters, settings, [sale('a')], ex).report.netIncome, 90);
++  assert.equal(buildReportResult(filters, settings, [sale('a'), sale('b')], ex).report.grossRevenue, 200);
++  assert.equal(buildReportResult(filters, settings, [sale('a', { status: 'CANCELLED' })], ex).report.grossRevenue, 0);
++  assert.equal(buildReportResult(filters, { ...settings, monthlyFixedExpense: 20 }, [sale('a')], ex).report.netIncome, 70);
++  assert.equal(buildReportResult({ ...filters, barberId: 'b1' }, settings, [sale('a')], ex).report.expenses, 0);
++});
++
++test('attendance reconciles active additions and missing documents without generating saved records', () => {
++  const f = fixture(); const { reconcileAttendance } = f.load('./services/attendanceService');
++  const barbers = [{ id: 'b1', name: 'One' }, { id: 'b2', name: 'Two' }, { id: 'off', active: false }];
++  const day = reconcileAttendance('2026-10-10', barbers, null);
++  assert.equal(day.draft, true); assert.equal(day.records.length, 2);
++  const saved = reconcileAttendance('2026-10-10', barbers, { ...day, draft: false, records: [{ barberId: 'b1', status: 'ABSENT' }] });
++  assert.equal(saved.records[0].status, 'ABSENT'); assert.equal(saved.records[1].status, 'PRESENT');
++});
++
++test('expense and attendance listeners use scoped queries and handle remote deletion', async () => {
++  const f = fixture(); const live = f.load('./services/liveData'); let expenses, attendance;
++  const stopExpense = live.subscribeExpenses('admin', range.from, range.to, (rows) => { expenses = rows; }, assert.fail);
++  assert.equal(f.listeners[0].ref.constraints.length, 2);
++  f.snapshot(f.listeners[0], [{ id: 'ex', date: '2026-10-10T00:00:00.000Z', amount: 5 }]); assert.equal(expenses.length, 1);
++  const stopAttendance = live.subscribeAttendance('admin', '2026-10-10', [{ id: 'b1', name: 'One' }], (day) => { attendance = day; }, assert.fail);
++  f.listeners[1].next({ metadata: { fromCache: false }, exists: () => false });
++  assert.equal(attendance.draft, true); await tick(); stopExpense(); stopAttendance();
++});
++
++test('shared data listens to services/settings for both roles and staff only for admin', () => {
++  const f = fixture(); const live = f.load('./services/liveData');
++  const callbacks = { services: () => {}, settings: () => {}, barbers: () => {}, error: assert.fail };
++  const stopBarber = live.subscribeSharedData({ id: 'b1', role: 'BARBER' }, callbacks);
++  assert.equal(f.listeners.length, 2); stopBarber();
++  const stopAdmin = live.subscribeSharedData(admin, callbacks); assert.equal(f.listeners.length, 5);
++  stopAdmin(); assert.ok(f.listeners.every((l) => l.stopped));
++});
++
++// Minimal hook harness exercises the production effect guards and cleanup, not a copy of the hook.
++function hookHarness() {
++  const slots = []; let cursor = 0, focus, cleanup, lastFocus;
++  const same = (a, b) => a && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
++  const react = {
++    useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = typeof initial === 'function' ? initial() : initial;
++      return [slots[i], (next) => { slots[i] = typeof next === 'function' ? next(slots[i]) : next; }]; },
++    useRef(initial) { const i = cursor++; return slots[i] ?? (slots[i] = { current: initial }); },
++    useCallback(fn, deps) { const i = cursor++; if (!slots[i] || !same(slots[i].deps, deps)) slots[i] = { fn, deps }; return slots[i].fn; },
++  };
++  const f = fixture({ react, 'expo-router': { useFocusEffect: (fn) => { focus = fn; } } });
++  const { useRealtimeResource } = f.load('./hooks/useRealtimeResource');
++  return {
++    render(load, subscribe) {
++      cursor = 0; const value = useRealtimeResource([], load, subscribe);
++      if (focus !== lastFocus) { cleanup?.(); lastFocus = focus; cleanup = focus(); }
++      return value;
++    },
++    blur() { cleanup?.(); },
++  };
++}
++
++test('hook discards slow initial/manual reads after live data, and cleans up on blur', async () => {
++  const h = hookHarness(); const first = deferred(), manual = deferred(); let next, stopped = false;
++  const load = (cacheOnly) => cacheOnly ? first.promise : manual.promise;
++  const subscribe = (callback) => { next = callback; return () => { stopped = true; }; };
++  let state = h.render(load, subscribe);
++  next(['live']); first.resolve(['stale-cache']); await tick();
++  state = h.render(load, subscribe); assert.deepEqual(state.data, ['live']);
++  const refresh = state.refresh(); next(['newer-live']); manual.resolve(['old-refresh']); await refresh;
++  state = h.render(load, subscribe); assert.deepEqual(state.data, ['newer-live']);
++  h.blur(); assert.equal(stopped, true); next(['after-blur']);
++  state = h.render(load, subscribe); assert.deepEqual(state.data, ['newer-live']);
++});
++
++test('range changes ignore late callbacks from the previous listener and show errors', async () => {
++  const h = hookHarness(); const old = deferred(); let oldNext, newNext, fail;
++  const oldLoad = () => old.promise;
++  const oldSubscribe = (next) => { oldNext = next; return () => {}; };
++  h.render(oldLoad, oldSubscribe);
++  const newLoad = async () => ['new-cache'];
++  const newSubscribe = (next, error) => { newNext = next; fail = error; return () => {}; };
++  h.render(newLoad, newSubscribe); newNext(['new-live']); oldNext(['old-live']); old.resolve(['old-cache']); await tick();
++  let state = h.render(newLoad, newSubscribe); assert.deepEqual(state.data, ['new-live']);
++  const originalWarn = console.warn; console.warn = () => {};
++  try { fail(new Error('permission-denied')); } finally { console.warn = originalWarn; }
++  state = h.render(newLoad, newSubscribe); assert.match(state.error, /Live updates unavailable/); assert.equal(state.loading, false);
++  h.blur();
++});
+diff --git a/utils/sharedSubscription.ts b/utils/sharedSubscription.ts
+new file mode 100644
+index 0000000..d664546
+--- /dev/null
++++ b/utils/sharedSubscription.ts
+@@ -0,0 +1,32 @@
++/** Fan out one backend listener per auth/query key; release it after the last consumer. */
++export function createSubscriptionPool<T>() {
++  type Consumer = { next: (value: T) => void; error?: (error: unknown) => void };
++  const entries = new Map<string, {
++    consumers: Set<Consumer>; stop: () => void; value?: T; hasValue: boolean;
++  }>();
++  return (key: string, start: (next: (value: T) => void, error: (error: unknown) => void) => () => void,
++    next: (value: T) => void, error?: (error: unknown) => void): (() => void) => {
++    const consumer = { next, error };
++    let entry = entries.get(key);
++    if (!entry) {
++      entry = { consumers: new Set([consumer]), stop: () => {}, hasValue: false };
++      entries.set(key, entry);
++      const current = entry;
++      current.stop = start((value) => {
++        current.value = value;
++        current.hasValue = true;
++        current.consumers.forEach((c) => c.next(value));
++      }, (failure) => current.consumers.forEach((c) => c.error?.(failure)));
++    } else {
++      entry.consumers.add(consumer);
++      if (entry.hasValue) next(entry.value as T);
++    }
++    return () => {
++      entry!.consumers.delete(consumer);
++      if (!entry!.consumers.size) {
++        entry!.stop();
++        entries.delete(key);
++      }
++    };
++  };
++}

@@ -10,7 +10,8 @@ import {
   type DocumentData,
   type UpdateData,
   where,
-  limit as fsLimit,
+  onSnapshot,
+  type QueryConstraint,
 } from 'firebase/firestore';
 import { COLLECTIONS, STORAGE_KEYS } from '../constants/config';
 import { AppUser } from '../types/auth';
@@ -22,21 +23,21 @@ import {
   TransactionStatus,
 } from '../types/transaction';
 import { calculateRevenueSplit, resolveSplitPercentage, round2 } from '../utils/calculations';
-import { isWithinRange } from '../utils/dateUtils';
 import { firestore } from './firebase';
 import { createLocalId, readJson, writeJson } from './localStore';
 import { isOnline } from './networkService';
 import { enqueueOp } from './pendingOps';
-import { getGcashScreenshotBase64 } from './storageService';
+import { createSubscriptionPool } from '../utils/sharedSubscription';
+import { rowsFromSnapshot } from '../utils/snapshots';
 
 /**
  * TRANSACTIONS: READ / WRITE PATTERN
  * -----------------------------------
- * READS (getTransactions): one-time Firestore reads via getDocs(), not a live
- * onSnapshot() listener. A screen only sees fresh data when it re-fetches
- * (on focus, or pull-to-refresh) - another device's changes don't appear here
- * automatically. On success the result is cached to AsyncStorage; on failure
- * (offline, or a permissions error) the last cached copy is returned instead.
+ * READS: screens use subscribeTransactions for live, role/date-scoped data.
+ * getTransactions remains available for manual refresh and cache/demo fallback.
+ * Date bounds are applied on the server before reading; there is no row cap
+ * silently truncating financial totals. Full-history calls are intentionally
+ * uncapped (the services screen uses history to prevent deleting used services).
  *
  * WRITES (pushTransaction / pushOrQueueUpdate): every write uses setDoc() with
  * an ID generated on the device (see createLocalId in localStore.ts), not
@@ -94,7 +95,7 @@ export function buildTransaction(input: TransactionInput, settings: ShopSettings
 }
 
 async function cacheTransactions(transactions: Transaction[]): Promise<void> {
-  await writeJson(STORAGE_KEYS.cachedTransactions, transactions.slice(0, 500));
+  await writeJson(STORAGE_KEYS.cachedTransactions, transactions);
 }
 
 export async function getPendingTransactions(): Promise<Transaction[]> {
@@ -172,41 +173,73 @@ function mergeById(remote: Transaction[], pending: Transaction[]): Transaction[]
   );
 }
 
-/** Loads transactions, remotely when possible and from cache when offline. */
-export async function getTransactions(filters: TransactionFilters = {}): Promise<Transaction[]> {
-  let base: Transaction[] = [];
-  const online = await isOnline();
+/** Same query for reads and listeners. Never trust a barberId supplied by a barber. */
+export function transactionConstraints(user: Pick<AppUser, 'id' | 'role'> | null,
+  filters: TransactionFilters): QueryConstraint[] {
+  const constraints: QueryConstraint[] = [];
+  const barberId = user && user.role !== 'ADMIN' ? user.id : filters.barberId;
+  if (barberId) constraints.push(where('barberId', '==', barberId));
+  if (filters.from) constraints.push(where('createdAt', '>=', new Date(filters.from).toISOString()));
+  if (filters.to) constraints.push(where('createdAt', '<=', new Date(filters.to).toISOString()));
+  constraints.push(orderBy('createdAt', 'desc'));
+  return constraints;
+}
 
-  if (online && firestore) {
+/** Merge a bounded read into the offline history instead of replacing other periods. */
+let remoteCacheWrites: Promise<void> = Promise.resolve();
+function cacheRemoteRows(rows: Transaction[], filters: TransactionFilters): Promise<void> {
+  const write = remoteCacheWrites.catch(() => {}).then(async () => {
+    const cached = await readJson<Transaction[]>(STORAGE_KEYS.cachedTransactions, []);
+    const pending = await getPendingTransactions();
+    const outside = cached.filter((t) => !applyFilters([t], filters).length);
+    await cacheTransactions(mergeById([...rows, ...outside], pending));
+  });
+  remoteCacheWrites = write;
+  return write;
+}
+
+export async function getTransactions(filters: TransactionFilters = {}, cacheOnly = false): Promise<Transaction[]> {
+  const user = await currentUser();
+  const scopedFilters = user && user.role !== 'ADMIN' ? { ...filters, barberId: user.id } : filters;
+  let base = await readJson<Transaction[]>(STORAGE_KEYS.cachedTransactions, []);
+  if (!cacheOnly && firestore && (await isOnline())) {
     try {
-      // A barber may only read their own rows. Firestore rejects any query it
-      // cannot prove is allowed, so the barberId filter has to be part of the
-      // query itself - without it every barber got permission-denied and
-      // silently fell back to a stale cache.
-      const user = await currentUser();
-      const transactionsRef = collection(firestore, COLLECTIONS.transactions);
-      const scoped =
-        user && user.role !== 'ADMIN'
-          ? query(
-              transactionsRef,
-              where('barberId', '==', user.id),
-              orderBy('createdAt', 'desc'),
-              fsLimit(500)
-            )
-          : query(transactionsRef, orderBy('createdAt', 'desc'), fsLimit(500));
-      const snapshot = await getDocs(scoped);
+      const snapshot = await getDocs(query(collection(firestore, COLLECTIONS.transactions),
+        ...transactionConstraints(user, scopedFilters)));
       base = snapshot.docs.map((d) => ({ ...(d.data() as Transaction), id: d.id }));
-      await cacheTransactions(base);
+      await cacheRemoteRows(base, scopedFilters);
     } catch (error) {
       console.warn('[BarberSync] Falling back to cached transactions.', error);
-      base = await readJson<Transaction[]>(STORAGE_KEYS.cachedTransactions, []);
     }
-  } else {
-    base = await readJson<Transaction[]>(STORAGE_KEYS.cachedTransactions, []);
   }
+  return applyFilters(mergeById(base, await getPendingTransactions()), scopedFilters);
+}
 
-  const pending = await getPendingTransactions();
-  return applyFilters(mergeById(base, pending), filters);
+const transactionPool = createSubscriptionPool<Transaction[]>();
+export function subscribeTransactions(user: Pick<AppUser, 'id' | 'role'>, filters: TransactionFilters,
+  next: (rows: Transaction[]) => void, error: (error: unknown) => void): () => void {
+  if (!firestore) return () => {};
+  const scope = user.role === 'ADMIN' ? filters : { ...filters, barberId: user.id };
+  // Payment/status are client filters to avoid extra composite indexes and subscriptions.
+  const queryScope = { from: scope.from, to: scope.to, barberId: scope.barberId };
+  const key = JSON.stringify([user.id, user.role, queryScope]);
+  return transactionPool(key, (emit, fail) => {
+    let active = true;
+    let version = 0;
+    const stop = onSnapshot(query(collection(firestore!, COLLECTIONS.transactions),
+      ...transactionConstraints(user, queryScope)), { includeMetadataChanges: true }, (snap) => {
+      const rows = rowsFromSnapshot<Transaction>(snap);
+      if (!rows) return;
+      const ticket = ++version;
+      // Deliver immediately, then add pending offline sales. Guard async processing.
+      emit(rows);
+      void getPendingTransactions().then((pending) => {
+        if (active && ticket === version) emit(applyFilters(mergeById(rows, pending), queryScope));
+      }).catch(fail);
+      void cacheRemoteRows(rows, queryScope).catch(fail);
+    }, fail);
+    return () => { active = false; version++; stop(); };
+  }, (rows) => next(applyFilters(rows, scope)), error);
 }
 
 export function applyFilters(
@@ -214,7 +247,8 @@ export function applyFilters(
   filters: TransactionFilters
 ): Transaction[] {
   return transactions.filter((t) => {
-    if (filters.from && filters.to && !isWithinRange(t.createdAt, filters.from, filters.to)) return false;
+    if (filters.from && t.createdAt < new Date(filters.from).toISOString()) return false;
+    if (filters.to && t.createdAt > new Date(filters.to).toISOString()) return false;
     if (filters.barberId && t.barberId !== filters.barberId) return false;
     if (filters.paymentMethod && t.paymentMethod !== filters.paymentMethod) return false;
     if (filters.status && t.status !== filters.status) return false;

@@ -11,6 +11,7 @@ import { Screen } from '../../components/ui/Screen';
 import { SectionCard } from '../../components/ui/SectionCard';
 import { StatCard, StatGrid } from '../../components/ui/StatCard';
 import { Colors } from '../../constants/colors';
+import { useCurrentDay } from '../../hooks/useCurrentDay';
 import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useLiveTransactions } from '../../hooks/useLiveTransactions';
@@ -20,11 +21,12 @@ import type { RangePreset } from '../../utils/dateUtils';
 
 /** Personal earnings only — no shop revenue, no other barbers. */
 export default function BarberEarnings() {
+  const currentDay = useCurrentDay();
   const { user } = useAuth();
   const { settings } = useAppData();
   const [preset, setPreset] = useState<RangePreset>('WEEK');
-  const range = useMemo(() => buildRange(preset), [preset]);
-  const { transactions, loading, refresh } = useLiveTransactions({
+  const range = useMemo(() => buildRange(preset), [preset, currentDay]);
+  const { transactions, loading, refresh, error: liveError } = useLiveTransactions({
     from: range.from,
     to: range.to,
     barberId: user?.id,
@@ -55,6 +57,7 @@ export default function BarberEarnings() {
 
   return (
     <Screen refreshing={loading} onRefresh={refresh}>
+        {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
       <SegmentedButtons
         value={preset}
         onValueChange={(value) => setPreset(value as RangePreset)}
