@@ -1,0 +1,261 @@
+diff --git a/app/(barber)/dashboard.tsx b/app/(barber)/dashboard.tsx
+index 45864c3..4c7ee1d 100644
+--- a/app/(barber)/dashboard.tsx
++++ b/app/(barber)/dashboard.tsx
+@@ -1,12 +1,12 @@
+ /**
+  * Barber home screen (read-only): today's commission, the services the
+  * admin/owner logged under this barber, and the live customer queue.
+- * Barbers cannot log services themselves.
++ * Both the queue and the services update live. Barbers cannot log services
++ * themselves.
+  */
+ import React, { useMemo } from 'react';
+ import { StyleSheet } from 'react-native';
+ import { Text } from 'react-native-paper';
+-import { useFocusEffect } from 'expo-router';
+ import { EmptyState } from '../../components/ui/EmptyState';
+ import { LoadingState } from '../../components/ui/LoadingState';
+ import { Screen } from '../../components/ui/Screen';
+@@ -18,7 +18,7 @@ import { Colors } from '../../constants/colors';
+ import { useAppData } from '../../context/AppDataContext';
+ import { useAuth } from '../../hooks/useAuth';
+ import { useQueue } from '../../hooks/useQueue';
+-import { useTransactions } from '../../hooks/useTransactions';
++import { useLiveTransactions } from '../../hooks/useLiveTransactions';
+ import { formatCurrency, sum } from '../../utils/calculations';
+ import { buildRange, formatDate, isWithinRange } from '../../utils/dateUtils';
+ 
+@@ -28,7 +28,8 @@ export default function BarberDashboard() {
+   const { services } = useAppData();
+   const today = useMemo(() => buildRange('TODAY'), []);
+   const month = useMemo(() => buildRange('MONTH'), []);
+-  const { transactions, loading, refresh } = useTransactions({
++  // Live: a service the owner records for this barber appears right away.
++  const { transactions, loading, refresh } = useLiveTransactions({
+     from: month.from,
+     to: month.to,
+     barberId: user?.id,
+@@ -36,12 +37,6 @@ export default function BarberDashboard() {
+   // Shared with the queue tab and the admin dashboard.
+   const { activeQueue } = useQueue(services, user?.id);
+ 
+-  useFocusEffect(
+-    React.useCallback(() => {
+-      refresh();
+-    }, [refresh])
+-  );
+-
+   const todays = useMemo(
+     () => transactions.filter((t) => isWithinRange(t.createdAt, today.from, today.to) && t.status !== 'CANCELLED'),
+     [transactions, today]
+diff --git a/app/(barber)/earnings.tsx b/app/(barber)/earnings.tsx
+index 93f9003..3130f41 100644
+--- a/app/(barber)/earnings.tsx
++++ b/app/(barber)/earnings.tsx
+@@ -13,7 +13,7 @@ import { StatCard, StatGrid } from '../../components/ui/StatCard';
+ import { Colors } from '../../constants/colors';
+ import { useAppData } from '../../context/AppDataContext';
+ import { useAuth } from '../../hooks/useAuth';
+-import { useTransactions } from '../../hooks/useTransactions';
++import { useLiveTransactions } from '../../hooks/useLiveTransactions';
+ import { formatCurrency, sum } from '../../utils/calculations';
+ import { buildRange, formatDate } from '../../utils/dateUtils';
+ import type { RangePreset } from '../../utils/dateUtils';
+@@ -24,7 +24,7 @@ export default function BarberEarnings() {
+   const { settings } = useAppData();
+   const [preset, setPreset] = useState<RangePreset>('WEEK');
+   const range = useMemo(() => buildRange(preset), [preset]);
+-  const { transactions, loading, refresh } = useTransactions({
++  const { transactions, loading, refresh } = useLiveTransactions({
+     from: range.from,
+     to: range.to,
+     barberId: user?.id,
+diff --git a/hooks/useLiveTransactions.ts b/hooks/useLiveTransactions.ts
+new file mode 100644
+index 0000000..a2b3e1e
+--- /dev/null
++++ b/hooks/useLiveTransactions.ts
+@@ -0,0 +1,83 @@
++/**
++ * Same result shape as useTransactions, but for a barber's own rows it also
++ * listens to Firestore live (see services/liveTransactions.ts): a service the
++ * owner records shows up here immediately, with no refresh.
++ *
++ * One-time fetch + live listener, the same pairing the queue uses:
++ *  - the fetch covers offline mode and local/demo mode (a listener needs a real
++ *    Firestore connection) and gives the screen something to show before the
++ *    first live snapshot arrives;
++ *  - once a live snapshot has arrived it wins, so a slow fetch that finishes
++ *    afterwards can never overwrite newer live data with older rows.
++ *
++ * The listener stays on while the barber is in the app (instead of
++ * re-subscribing on every tab focus), so after the first read it only receives
++ * the changes.
++ */
++import { useCallback, useEffect, useState } from 'react';
++import { Transaction, TransactionFilters } from '../types/transaction';
++import { subscribeToBarberTransactions } from '../services/liveTransactions';
++import { getTransactions } from '../services/transactionService';
++
++export function useLiveTransactions(filters: TransactionFilters = {}) {
++  const [transactions, setTransactions] = useState<Transaction[]>([]);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState<string | null>(null);
++
++  const key = JSON.stringify(filters);
++
++  /** Manual refresh (pull-to-refresh): one-time read. Live updates continue after it. */
++  const refresh = useCallback(async () => {
++    setLoading(true);
++    setError(null);
++    try {
++      setTransactions(await getTransactions(JSON.parse(key) as TransactionFilters));
++    } catch (loadError) {
++      console.warn('[BarberSync] Could not load transactions.', loadError);
++      setError('Could not load transactions. Pull down to try again.');
++    } finally {
++      setLoading(false);
++    }
++  }, [key]);
++
++  useEffect(() => {
++    let mounted = true;
++    let gotLive = false;
++    const current = JSON.parse(key) as TransactionFilters;
++    setLoading(true);
++    setError(null);
++
++    (async () => {
++      try {
++        const rows = await getTransactions(current);
++        if (mounted && !gotLive) setTransactions(rows);
++      } catch (loadError) {
++        console.warn('[BarberSync] Could not load transactions.', loadError);
++        if (mounted && !gotLive) setError('Could not load transactions. Pull down to try again.');
++      } finally {
++        if (mounted && !gotLive) setLoading(false);
++      }
++    })();
++
++    const unsubscribe =
++      current.barberId && current.from && current.to
++        ? subscribeToBarberTransactions(
++            { barberId: current.barberId, from: current.from, to: current.to },
++            (rows) => {
++              if (!mounted) return;
++              gotLive = true;
++              setTransactions(rows);
++              setLoading(false);
++              setError(null);
++            }
++          )
++        : () => {};
++
++    return () => {
++      mounted = false;
++      unsubscribe();
++    };
++  }, [key]);
++
++  return { transactions, loading, error, refresh, setTransactions };
++}
+diff --git a/services/liveTransactions.ts b/services/liveTransactions.ts
+new file mode 100644
+index 0000000..840145f
+--- /dev/null
++++ b/services/liveTransactions.ts
+@@ -0,0 +1,68 @@
++/**
++ * LIVE TRANSACTIONS FOR ONE BARBER
++ * ---------------------------------
++ * Same idea as subscribeToQueue in queueService.ts: a Firestore onSnapshot()
++ * listener instead of a one-time read. When the owner completes a customer and
++ * records the service, the new transaction reaches this barber's phone right
++ * away - commission, "services today" and the services list all update without
++ * a refresh.
++ *
++ * Scoped to one barber on purpose: the query carries where('barberId', '==',
++ * uid), which is exactly what firestore.rules require for a barber to read
++ * (a barber can never listen to anyone else's transactions). Together with the
++ * createdAt range and ordering it uses the barberId + createdAt composite
++ * index that is already declared in firestore.indexes.json.
++ *
++ * Does nothing when Firestore is not configured (local/demo mode); the caller
++ * keeps using its one-time fetch there.
++ */
++import { collection, limit as fsLimit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
++import { COLLECTIONS } from '../constants/config';
++import { Transaction } from '../types/transaction';
++import { rowsFromSnapshot } from '../utils/snapshots';
++import { firestore } from './firebase';
++
++/** Safety cap for one barber's rows in one range (a month is far below this). */
++const LIVE_LIMIT = 1000;
++
++export interface BarberTransactionRange {
++  barberId: string;
++  /** ISO timestamps, inclusive. */
++  from: string;
++  to: string;
++}
++
++/** Returns an unsubscribe function - call it when the screen goes away. */
++export function subscribeToBarberTransactions(
++  range: BarberTransactionRange,
++  onChange: (transactions: Transaction[]) => void,
++  onError?: (error: unknown) => void
++): () => void {
++  if (!firestore) return () => {};
++  const from = new Date(range.from);
++  const to = new Date(range.to);
++  if (!range.barberId || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
++    return () => {};
++  }
++
++  const scoped = query(
++    collection(firestore, COLLECTIONS.transactions),
++    where('barberId', '==', range.barberId),
++    where('createdAt', '>=', from.toISOString()),
++    where('createdAt', '<=', to.toISOString()),
++    orderBy('createdAt', 'desc'),
++    fsLimit(LIVE_LIMIT)
++  );
++
++  return onSnapshot(
++    scoped,
++    (snapshot) => {
++      const rows = rowsFromSnapshot<Transaction>(snapshot);
++      if (rows) onChange(rows);
++    },
++    (error) => {
++      console.warn('[BarberSync] Live transactions listener errored.', error);
++      onError?.(error);
++    }
++  );
++}
+diff --git a/utils/snapshots.ts b/utils/snapshots.ts
+new file mode 100644
+index 0000000..fa9d20b
+--- /dev/null
++++ b/utils/snapshots.ts
+@@ -0,0 +1,19 @@
++/**
++ * Turns a Firestore snapshot into plain rows for the UI. Kept free of any
++ * Firebase import (it only needs the snapshot's shape) so the rules can be
++ * tested on their own.
++ *
++ * Returns null for a snapshot answered from the device's own cache. Offline,
++ * Firestore replies from an empty in-memory cache; treating that as real data
++ * would wipe the rows the screen already has, so callers skip a null result
++ * and keep what they are showing.
++ */
++export interface SnapshotLike<T> {
++  metadata: { fromCache: boolean };
++  docs: { id: string; data: () => unknown }[];
++}
++
++export function rowsFromSnapshot<T extends { id: string }>(snapshot: SnapshotLike<T>): T[] | null {
++  if (snapshot.metadata.fromCache) return null;
++  return snapshot.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
++}

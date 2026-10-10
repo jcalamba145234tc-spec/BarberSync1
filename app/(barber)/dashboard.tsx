@@ -1,12 +1,12 @@
 /**
  * Barber home screen (read-only): today's commission, the services the
  * admin/owner logged under this barber, and the live customer queue.
- * Barbers cannot log services themselves.
+ * Both the queue and the services update live. Barbers cannot log services
+ * themselves.
  */
 import React, { useMemo } from 'react';
 import { StyleSheet } from 'react-native';
 import { Text } from 'react-native-paper';
-import { useFocusEffect } from 'expo-router';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { Screen } from '../../components/ui/Screen';
@@ -18,7 +18,7 @@ import { Colors } from '../../constants/colors';
 import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useQueue } from '../../hooks/useQueue';
-import { useTransactions } from '../../hooks/useTransactions';
+import { useLiveTransactions } from '../../hooks/useLiveTransactions';
 import { formatCurrency, sum } from '../../utils/calculations';
 import { buildRange, formatDate, isWithinRange } from '../../utils/dateUtils';
 
@@ -28,19 +28,14 @@ export default function BarberDashboard() {
   const { services } = useAppData();
   const today = useMemo(() => buildRange('TODAY'), []);
   const month = useMemo(() => buildRange('MONTH'), []);
-  const { transactions, loading, refresh } = useTransactions({
+  // Live: a service the owner records for this barber appears right away.
+  const { transactions, loading, refresh } = useLiveTransactions({
     from: month.from,
     to: month.to,
     barberId: user?.id,
   });
   // Shared with the queue tab and the admin dashboard.
   const { activeQueue } = useQueue(services, user?.id);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      refresh();
-    }, [refresh])
-  );
 
   const todays = useMemo(
     () => transactions.filter((t) => isWithinRange(t.createdAt, today.from, today.to) && t.status !== 'CANCELLED'),

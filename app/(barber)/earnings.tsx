@@ -13,7 +13,7 @@ import { StatCard, StatGrid } from '../../components/ui/StatCard';
 import { Colors } from '../../constants/colors';
 import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../hooks/useAuth';
-import { useTransactions } from '../../hooks/useTransactions';
+import { useLiveTransactions } from '../../hooks/useLiveTransactions';
 import { formatCurrency, sum } from '../../utils/calculations';
 import { buildRange, formatDate } from '../../utils/dateUtils';
 import type { RangePreset } from '../../utils/dateUtils';
@@ -24,7 +24,7 @@ export default function BarberEarnings() {
   const { settings } = useAppData();
   const [preset, setPreset] = useState<RangePreset>('WEEK');
   const range = useMemo(() => buildRange(preset), [preset]);
-  const { transactions, loading, refresh } = useTransactions({
+  const { transactions, loading, refresh } = useLiveTransactions({
     from: range.from,
     to: range.to,
     barberId: user?.id,
