@@ -7,7 +7,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Image, Linking, StyleSheet, View } from 'react-native';
-import { Button, Chip, Dialog, Portal, SegmentedButtons, Text } from 'react-native-paper';
+import { Button, Chip, Dialog, Portal, SegmentedButtons, Text, TextInput } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { AppSnackbar } from '../../components/ui/AppSnackbar';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -26,6 +26,7 @@ import { formatCurrency } from '../../utils/calculations';
 import { buildRange } from '../../utils/dateUtils';
 
 type PaymentFilter = 'ALL' | 'CASH' | 'GCASH';
+const PAGE_SIZE = 10;
 
 export default function AdminTransactions() {
   const currentDay = useCurrentDay();
@@ -37,6 +38,8 @@ export default function AdminTransactions() {
   const [payment, setPayment] = useState<PaymentFilter>('ALL');
   const [barberId, setBarberId] = useState<string | null>(null);
   const [pendingOnly, setPendingOnly] = useState(false);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [cancelConfirmationVisible, setCancelConfirmationVisible] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -49,10 +52,21 @@ export default function AdminTransactions() {
         if (payment !== 'ALL' && t.paymentMethod !== payment) return false;
         if (barberId && t.barberId !== barberId) return false;
         if (pendingOnly && t.status !== 'PENDING_GCASH') return false;
+        const query = search.trim().toLocaleLowerCase();
+        if (query && ![t.serviceName, t.customerName, t.barberName, t.paymentMethod, t.status,
+          t.gcashReference, String(t.amount)].some((value) => String(value ?? '').toLocaleLowerCase().includes(query))) return false;
         return true;
       }),
-    [transactions, payment, barberId, pendingOnly]
+    [transactions, payment, barberId, pendingOnly, search]
   );
+
+  const newestFirst = useMemo(
+    () => [...filtered].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [filtered]
+  );
+  const pageCount = Math.max(1, Math.ceil(newestFirst.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const visibleTransactions = newestFirst.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
 
   const total = useMemo(
     () => filtered.filter((t) => t.status === 'COMPLETED').reduce((sum, t) => sum + t.amount, 0),
@@ -106,6 +120,15 @@ export default function AdminTransactions() {
       <Screen refreshing={loading} onRefresh={refresh}>
         {liveError ? <Text style={{ color: Colors.danger }}>{liveError}</Text> : null}
         <SectionCard title="Filters" subtitle={`${filtered.length} record(s) - ${formatCurrency(total)} completed`}>
+          <TextInput
+            mode="outlined"
+            label="Search transactions"
+            placeholder="Service, customer, barber, payment, reference..."
+            value={search}
+            onChangeText={(value) => { setSearch(value); setPage(0); }}
+            left={<TextInput.Icon icon="magnify" />}
+            right={search ? <TextInput.Icon icon="close" onPress={() => { setSearch(''); setPage(0); }} /> : undefined}
+          />
           <SegmentedButtons
             value={payment}
             onValueChange={(value) => setPayment(value as PaymentFilter)}
@@ -146,7 +169,7 @@ export default function AdminTransactions() {
             message="Try clearing the filters or record a new service."
           />
         ) : (
-          filtered.map((transaction) => (
+          visibleTransactions.map((transaction) => (
             <TransactionCard
               key={transaction.id}
               transaction={transaction}
@@ -157,6 +180,17 @@ export default function AdminTransactions() {
               }
             />
           ))
+        )}
+        {newestFirst.length > 0 && (
+          <View style={styles.pagination}>
+            <Button compact mode="outlined" icon="chevron-left" disabled={currentPage === 0} onPress={() => setPage((current) => Math.max(0, current - 1))}>
+              Previous
+            </Button>
+            <Text variant="bodyMedium">Page {currentPage + 1} of {pageCount}</Text>
+            <Button compact mode="outlined" icon="chevron-right" contentStyle={{ flexDirection: 'row-reverse' }} disabled={currentPage + 1 >= pageCount} onPress={() => setPage((current) => Math.min(pageCount - 1, current + 1))}>
+              Next
+            </Button>
+          </View>
         )}
       </Screen>
 
@@ -266,6 +300,7 @@ export default function AdminTransactions() {
 const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   actions: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  pagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, paddingVertical: 12 },
   dialog: { gap: 6 },
   dialogActions: { flexWrap: 'wrap' },
   screenshot: { width: '100%', height: 220, borderRadius: 12, resizeMode: 'contain', marginTop: 8 },
